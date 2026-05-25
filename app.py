@@ -345,7 +345,15 @@ def upload_file():
 
     try:
         if filename.endswith('.csv'):
-            df = pd.read_csv(io.BytesIO(file_bytes), nrows=SAMPLE_ROW_LIMIT + 1)
+            try:
+                df = pd.read_csv(io.BytesIO(file_bytes), nrows=SAMPLE_ROW_LIMIT + 1)
+            except pd.errors.ParserError:
+                return jsonify({'error': (
+                    "We couldn't reliably read this file's table structure. "
+                    "This often happens with CSV files that have inconsistent column counts or "
+                    "non-standard formatting. Please verify the file is a properly formatted CSV, "
+                    "or export a fresh copy from your source system."
+                )}), 400
         elif filename.endswith('.pdf'):
             df, err = extract_pdf_dataframe(file_bytes)
             if err == 'scanned':
@@ -372,7 +380,11 @@ def upload_file():
                     )
                 }), 400
             elif err and err.startswith('parse_error:'):
-                return jsonify({'error': f'Could not parse PDF: {err[len("parse_error:"):]}'}), 400
+                return jsonify({'error': (
+                    "We couldn't reliably read this file's table structure. "
+                    "This often happens with complex or multi-column PDFs. "
+                    "Please upload a CSV or Excel version of the data for accurate analysis."
+                )}), 400
         else:
             df = pd.read_excel(io.BytesIO(file_bytes), nrows=SAMPLE_ROW_LIMIT + 1)
     except Exception as e:

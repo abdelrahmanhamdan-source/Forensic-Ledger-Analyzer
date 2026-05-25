@@ -77,7 +77,39 @@ document.getElementById('file-input').addEventListener('change', e => {
 });
 
 /* ─── File Upload ──────────────────────────────────────────── */
+function resetForNewFile() {
+  if (state.benfordChart) { state.benfordChart.destroy(); state.benfordChart = null; }
+  if (state.secondChart)  { state.secondChart.destroy();  state.secondChart  = null; }
+
+  state.sessionId      = null;
+  state.filename       = '';
+  state.fileHash       = '';
+  state.columns        = [];
+  state.analysisResult = null;
+  state.allRows        = [];
+  state.sortCol        = null;
+  state.sortDir        = 1;
+  state.sampled        = false;
+
+  hide('results-container');
+  hide('preview-panel');
+  hide('col-selectors');
+  hide('analyze-btn');
+  hide('file-info');
+
+  document.getElementById('preview-table').innerHTML      = '';
+  document.getElementById('transactions-table').innerHTML = '';
+
+  const sn = document.getElementById('sample-notice');
+  if (sn) sn.className = 'hidden';
+
+  resetInterpretation();
+
+  document.getElementById('file-input').value = '';
+}
+
 async function handleFileUpload(file) {
+  resetForNewFile();
   const allowed = ['.csv', '.xlsx', '.xls', '.pdf'];
   const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
   if (!allowed.includes(ext)) { showToast('Unsupported file type. Accepted formats: CSV, Excel (.xlsx / .xls), and text-based PDF.', 'error'); return; }

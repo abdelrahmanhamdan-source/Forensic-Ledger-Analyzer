@@ -67,6 +67,20 @@ body {
 .logo { display: flex; align-items: center; gap: .6rem; }
 .logo-icon { color: var(--crimson); font-size: 1.1rem; }
 .logo-text { font-weight: 700; letter-spacing: .03em; font-size: 1.05rem; }
+.header-logo {
+  height: 30px; width: auto;
+  border-radius: 5px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.welcome-logo-wrap { margin: .25rem 0 .9rem; }
+.welcome-logo {
+  height: 96px; width: auto;
+  border-radius: 10px;
+  object-fit: contain;
+  box-shadow: 0 4px 24px rgba(0,0,0,.45);
+}
 
 .tab-nav { display: flex; gap: .25rem; }
 .tab-btn {
