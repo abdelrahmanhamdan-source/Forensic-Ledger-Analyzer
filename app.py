@@ -15,6 +15,26 @@ from scipy import stats
 from difflib import SequenceMatcher
 import pdfplumber
 
+try:
+    import pytesseract
+    from PIL import Image as PILImage
+    _OCR_AVAILABLE = True
+    # On Windows, point pytesseract at the Tesseract binary if it isn't on PATH.
+    _TESS_PATHS = [
+        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+    ]
+    for _tp in _TESS_PATHS:
+        if os.path.exists(_tp):
+            pytesseract.pytesseract.tesseract_cmd = _tp
+            print(f"[OCR] Tesseract found at: {_tp}")
+            break
+    else:
+        print("[OCR] Tesseract not found at default Windows paths; relying on system PATH")
+except ImportError:
+    _OCR_AVAILABLE = False
+    print("[OCR] pytesseract/Pillow not installed — OCR disabled")
+
 app = Flask(__name__, static_folder='static', template_folder='templates')
 CORS(app)
 app.config['MAX_CONTENT_LENGTH'] = 250 * 1024 * 1024  # 250MB
@@ -298,10 +318,16 @@ def suggest_amount_col(df):
         if numeric_frac < 0.5 or len(numeric_vals) < 3:
             continue
 
+        # Drop NaN and infinite values before any int() conversion or arithmetic
+        import math as _math
+        numeric_vals = [v for v in numeric_vals if not (_math.isnan(v) or _math.isinf(v))]
+        if len(numeric_vals) < 3:
+            continue
+
         score = numeric_frac  # base 0.5–1.0
 
         # Bonus: decimal values are a strong signal for money
-        decimal_frac = sum(1 for v in numeric_vals if v != int(v)) / len(numeric_vals)
+        decimal_frac = sum(1 for v in numeric_vals if v % 1 != 0) / len(numeric_vals)
         score += decimal_frac * 0.5
 
         # Bonus: wide value range (monetary data spans many orders of magnitude)
@@ -319,12 +345,12 @@ def suggest_amount_col(df):
             score += 0.05
 
         # Heavy penalty: values concentrated in year range 1900–2100
-        year_frac = sum(1 for v in numeric_vals if 1900 <= v <= 2100 and v == int(v)) / len(numeric_vals)
+        year_frac = sum(1 for v in numeric_vals if 1900 <= v <= 2100 and v % 1 == 0) / len(numeric_vals)
         if year_frac >= 0.8:
             score -= 2.0
 
         # Penalty: sequential integers (row numbers, contract IDs, etc.)
-        int_vals = [v for v in numeric_vals if v == int(v)]
+        int_vals = [v for v in numeric_vals if v % 1 == 0]
         if len(int_vals) >= 3:
             sorted_ints = sorted(set(int(v) for v in int_vals))
             if len(sorted_ints) >= 3:
@@ -444,18 +470,55 @@ def _combine_page_tables(tables):
     return combined
 
 
+def _build_dataframe_from_normalized(normalized):
+    """Build and clean a DataFrame from (headers, data_rows) list. Returns (df, None) or (None, error_code)."""
+    combined = _combine_page_tables(normalized)
+    best_headers, best_rows = max(combined, key=lambda t: len(t[1]) * len(t[0]))
+
+    df = pd.DataFrame(best_rows, columns=best_headers)
+    df = df[~df.apply(
+        lambda r: all(str(v).strip() == '' for v in r), axis=1
+    )].reset_index(drop=True)
+
+    def _col_numeric_frac(series):
+        vals = [v for v in series if v is not None and str(v).strip() != '']
+        if not vals:
+            return 0.0
+        return sum(1 for v in vals if _strip_currency(v) is not None) / len(vals)
+
+    def _coerce(val):
+        if val is None or str(val).strip() == '':
+            return None
+        num = _strip_currency(val)
+        return num if num is not None else (str(val).strip() or None)
+
+    for col in df.columns:
+        if _col_numeric_frac(df[col]) >= 0.5:
+            df[col] = df[col].apply(_coerce)
+
+    for col in df.columns:
+        df[col] = df[col].map(
+            lambda v: None if (isinstance(v, str) and v.strip() == '') else v
+        )
+
+    numeric_count = sum(
+        len(pd.to_numeric(df[col], errors='coerce').dropna())
+        for col in df.columns
+    )
+    if numeric_count < 10:
+        return None, 'no_numeric_data'
+
+    return df, None
+
+
 def extract_pdf_dataframe(file_bytes):
     """
-    Extract tabular data from a text-based PDF using three strategies in order:
-      A) pdfplumber extract_tables() with default settings
-      B) extract_tables() with explicit 'text' vertical/horizontal strategy
-      C) word x-position alignment (line-by-line reconstruction)
+    Extract tabular data from a PDF.  For text-based PDFs, tries three strategies
+    in order (A → B → C).  For scanned/image-based PDFs (< 50 chars of extractable
+    text), falls back to OCR via pytesseract + pdfplumber page rendering.
 
-    Handles blank columns, inconsistent column counts, multi-page tables,
-    and currency-formatted values ($37,419.00 → 37419.0).
-
-    Returns (df, None) on success, or (None, error_code) on failure.
-    Error codes: 'scanned' | 'no_tables' | 'no_numeric_data' | 'parse_error:<msg>'
+    Returns (df, None, ocr_used) on success, or (None, error_code, ocr_used) on failure.
+    Error codes: 'ocr_unavailable' | 'no_tables' | 'no_numeric_data' | 'parse_error:<msg>'
     """
     try:
         total_chars = 0
@@ -464,8 +527,11 @@ def extract_pdf_dataframe(file_bytes):
             for page in pdf.pages:
                 total_chars += len((page.extract_text() or '').strip())
 
-            if total_chars == 0:
-                return None, 'scanned'
+            if total_chars < 50:
+                print(f"[PDF] Extractable text: {total_chars} chars — below threshold, triggering OCR fallback")
+                return _extract_pdf_via_ocr(file_bytes)
+
+            print(f"[PDF] Extractable text: {total_chars} chars — using text extraction strategies")
 
             # Strategy A: default extract_tables()
             raw_tables = []
@@ -496,53 +562,138 @@ def extract_pdf_dataframe(file_bytes):
                         normalized.append((h, rows))
 
         if not normalized:
-            return None, 'no_tables'
+            return None, 'no_tables', False
 
-        combined = _combine_page_tables(normalized)
-        best_headers, best_rows = max(combined, key=lambda t: len(t[1]) * len(t[0]))
+        df, err = _build_dataframe_from_normalized(normalized)
+        return (None, err, False) if err else (df, None, False)
 
-        df = pd.DataFrame(best_rows, columns=best_headers)
+    except Exception as exc:
+        app.logger.error('PDF extraction error: %s', exc, exc_info=True)
+        return None, f'parse_error:{exc}', False
 
-        # Drop all-blank rows
-        df = df[~df.apply(
-            lambda r: all(str(v).strip() == '' for v in r), axis=1
-        )].reset_index(drop=True)
 
-        # Auto-detect and coerce numeric columns (stripping currency formatting)
-        def _col_numeric_frac(series):
-            vals = [v for v in series if v is not None and str(v).strip() != '']
-            if not vals:
-                return 0.0
-            return sum(1 for v in vals if _strip_currency(v) is not None) / len(vals)
+def _ocr_words_from_image(img):
+    """Run pytesseract on a PIL image; return list of {text, x0, top} dicts (conf >= 30)."""
+    data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
+    words = []
+    for i, text in enumerate(data['text']):
+        text = str(text).strip()
+        if not text:
+            continue
+        try:
+            conf = int(data['conf'][i])
+        except (ValueError, TypeError):
+            conf = -1
+        if conf < 30:
+            continue
+        words.append({'text': text, 'x0': data['left'][i], 'top': data['top'][i]})
+    return words
 
-        def _coerce(val):
-            if val is None or str(val).strip() == '':
-                return None
-            num = _strip_currency(val)
-            return num if num is not None else (str(val).strip() or None)
 
-        for col in df.columns:
-            if _col_numeric_frac(df[col]) >= 0.5:
-                df[col] = df[col].apply(_coerce)
+def _words_to_raw_table(words):
+    """Align word-position dicts into a raw table (list of rows) using x-coordinate bucketing."""
+    if not words:
+        return None
+    lines = {}
+    for word in words:
+        y_bucket = round(word['top'] / 5) * 5
+        lines.setdefault(y_bucket, []).append(word)
+    sorted_lines = [sorted(ws, key=lambda w: w['x0']) for _, ws in sorted(lines.items())]
+    if len(sorted_lines) < 2:
+        return None
+    header_line = max(sorted_lines, key=len)
+    if len(header_line) < 2:
+        return None
+    col_xs = [w['x0'] for w in header_line]
+    ncols = len(col_xs)
+    table_rows = []
+    for line_words in sorted_lines:
+        row = [''] * ncols
+        for word in line_words:
+            dists = [abs(word['x0'] - cx) for cx in col_xs]
+            col_idx = dists.index(min(dists))
+            row[col_idx] = (row[col_idx] + ' ' + word['text']).strip()
+        table_rows.append(row)
+    return table_rows if len(table_rows) >= 2 else None
 
-        # Replace remaining empty strings with None
-        for col in df.columns:
-            df[col] = df[col].map(
-                lambda v: None if (isinstance(v, str) and v.strip() == '') else v
-            )
 
+def _extract_pdf_via_ocr(file_bytes):
+    """
+    OCR fallback for scanned/image-based PDFs (called when extractable text < 50 chars).
+    Uses pdfplumber's page.to_image() (backed by pypdfium2) — no poppler required.
+    Returns (df, None, True) on success, (None, error_code, True) on failure.
+    """
+    if not _OCR_AVAILABLE:
+        return None, 'ocr_unavailable', True
+    print("[OCR] Triggering OCR fallback — rasterizing PDF pages via pdfplumber")
+    try:
+        normalized = []
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            total_pages = len(pdf.pages)
+            for page_num, page in enumerate(pdf.pages):
+                print(f"[OCR] Rasterizing page {page_num + 1}/{total_pages}...")
+                try:
+                    img_obj = page.to_image(resolution=200)
+                    img = img_obj.original
+                except Exception as render_exc:
+                    print(f"[OCR] Page {page_num + 1} rasterization failed: {render_exc}")
+                    continue
+                words = _ocr_words_from_image(img)
+                char_count = sum(len(w['text']) for w in words)
+                print(f"[OCR] Page {page_num + 1}: extracted {char_count} characters via OCR")
+                raw_table = _words_to_raw_table(words)
+                if raw_table:
+                    h, rows = _normalize_raw_table(raw_table)
+                    if h and rows:
+                        normalized.append((h, rows))
+        if not normalized:
+            print("[OCR] OCR completed but no structured table detected across all pages")
+            return None, 'no_tables', True
+        df, err = _build_dataframe_from_normalized(normalized)
+        if err:
+            print(f"[OCR] DataFrame construction failed: {err}")
+            return None, err, True
         numeric_count = sum(
             len(pd.to_numeric(df[col], errors='coerce').dropna())
             for col in df.columns
         )
-        if numeric_count < 10:
-            return None, 'no_numeric_data'
-
-        return df, None
-
+        print(f"[OCR] OCR extraction successful — {len(df)} rows, {numeric_count} numeric values parsed")
+        return df, None, True
+    except pytesseract.TesseractNotFoundError:
+        print("[OCR] TesseractNotFoundError — Tesseract binary not found")
+        return None, 'ocr_unavailable', True
     except Exception as exc:
-        app.logger.error('PDF extraction error: %s', exc, exc_info=True)
-        return None, f'parse_error:{exc}'
+        app.logger.error('OCR extraction error: %s', exc, exc_info=True)
+        print(f"[OCR] Unexpected error during OCR: {exc}")
+        return None, f'parse_error:{exc}', True
+
+
+def extract_image_dataframe(file_bytes):
+    """
+    Extract tabular data from a PNG/JPG image using OCR.
+    Returns (df, None, True) on success, (None, error_code, True) on failure.
+    """
+    if not _OCR_AVAILABLE:
+        return None, 'ocr_unavailable', True
+    try:
+        img = PILImage.open(io.BytesIO(file_bytes))
+    except Exception as exc:
+        return None, f'parse_error:{exc}', True
+    try:
+        words = _ocr_words_from_image(img)
+        raw_table = _words_to_raw_table(words)
+        if not raw_table:
+            return None, 'no_tables', True
+        h, rows = _normalize_raw_table(raw_table)
+        if not h or not rows:
+            return None, 'no_tables', True
+        df, err = _build_dataframe_from_normalized([(h, rows)])
+        return (None, err, True) if err else (df, None, True)
+    except pytesseract.TesseractNotFoundError:
+        return None, 'ocr_unavailable', True
+    except Exception as exc:
+        app.logger.error('Image OCR extraction error: %s', exc, exc_info=True)
+        return None, f'parse_error:{exc}', True
 
 
 @app.errorhandler(413)
@@ -577,9 +728,11 @@ def upload_file():
             return jsonify({'error': 'No file selected'}), 400
 
         filename = file.filename.lower()
+        _img_exts = ('.png', '.jpg', '.jpeg')
         if not (filename.endswith('.csv') or filename.endswith('.xlsx')
-                or filename.endswith('.xls') or filename.endswith('.pdf')):
-            return jsonify({'error': 'Only CSV, Excel, and text-based PDF files are supported'}), 400
+                or filename.endswith('.xls') or filename.endswith('.pdf')
+                or filename.endswith(_img_exts)):
+            return jsonify({'error': 'Only CSV, Excel, PDF, and image (PNG/JPG/JPEG) files are supported'}), 400
 
         try:
             file_bytes = file.read()
@@ -588,6 +741,7 @@ def upload_file():
             return jsonify({'error': 'Failed to read the uploaded file. Please try again.'}), 400
 
         file_hash = sha256_of_bytes(file_bytes)
+        ocr_used = False
 
         try:
             if filename.endswith('.csv'):
@@ -601,24 +755,24 @@ def upload_file():
                         "or export a fresh copy from your source system."
                     )}), 400
             elif filename.endswith('.pdf'):
-                df, err = extract_pdf_dataframe(file_bytes)
-                if err == 'scanned':
+                df, err, ocr_used = extract_pdf_dataframe(file_bytes)
+                if err == 'ocr_unavailable':
                     return jsonify({
                         'error': (
-                            'This PDF appears to be a scanned or image-based document — no text could '
-                            'be extracted from it. Scanned PDFs cannot be reliably read for digit-level '
-                            'forensic analysis. Please upload a CSV or Excel export of the same data, '
-                            'or a digital (text-based) PDF if one is available.'
+                            'This PDF appears to be scanned or image-based, but the OCR engine (Tesseract) '
+                            'was not found. Install Tesseract OCR (available at github.com/UB-Mannheim/tesseract/wiki) '
+                            'and restart the app. Alternatively, upload a digital (text-based) PDF, '
+                            'or export the data as CSV or Excel.'
                         )
                     }), 400
                 elif err == 'no_tables':
                     return jsonify({
                         'error': (
-                            'Text was found in this PDF, but its layout could not be parsed into a '
-                            'structured data table. This commonly occurs with formatted financial '
-                            'statements, annual reports, or documents that mix narrative text with '
-                            'visually formatted tables — layouts that cannot be reliably converted '
-                            'to transaction-level data. '
+                            'Text was found in this PDF (or OCR was attempted), but its layout could '
+                            'not be parsed into a structured data table. This commonly occurs with '
+                            'formatted financial statements, annual reports, or documents that mix '
+                            'narrative text with visually formatted tables — layouts that cannot be '
+                            'reliably converted to transaction-level data. '
                             'Please upload the underlying data as a CSV or Excel file instead.'
                         )
                     }), 400
@@ -637,8 +791,33 @@ def upload_file():
                 elif err and err.startswith('parse_error:'):
                     app.logger.error('PDF parse_error returned: %s', err)
                     return jsonify({'error': (
-                        "This PDF's layout or encoding is too complex to extract reliably. "
-                        'Please upload a CSV or Excel version of the data for accurate analysis.'
+                        'This PDF could not be processed — text extraction and OCR both failed or '
+                        'produced unusable results. Please upload the data as a CSV or Excel file.'
+                    )}), 400
+            elif filename.endswith(_img_exts):
+                df, err, ocr_used = extract_image_dataframe(file_bytes)
+                if err == 'ocr_unavailable':
+                    return jsonify({'error': (
+                        'The OCR engine (Tesseract) was not found — image files require OCR to extract text. '
+                        'Install Tesseract OCR and restart the app, or upload a CSV or Excel file instead.'
+                    )}), 400
+                elif err == 'no_tables':
+                    return jsonify({'error': (
+                        'No table structure could be detected in this image. OCR works best on '
+                        'clear, high-contrast images of tabular data. If possible, export the data '
+                        'directly as a CSV or Excel file.'
+                    )}), 400
+                elif err == 'no_numeric_data':
+                    return jsonify({'error': (
+                        'A table was found in this image but it contains insufficient numeric data '
+                        'for analysis. Please verify the image shows transaction-level financial data '
+                        'with at least 10 numeric values.'
+                    )}), 400
+                elif err and err.startswith('parse_error:'):
+                    app.logger.error('Image OCR parse_error: %s', err)
+                    return jsonify({'error': (
+                        'The image could not be processed. Please try a higher-resolution scan '
+                        'or upload the data as a CSV or Excel file.'
                     )}), 400
             else:
                 df = pd.read_excel(io.BytesIO(file_bytes), nrows=SAMPLE_ROW_LIMIT + 1)
@@ -655,7 +834,11 @@ def upload_file():
                 df = df.iloc[:SAMPLE_ROW_LIMIT]
 
             df = df.where(pd.notnull(df), None)
-            preview = df.head(10).to_dict(orient='records')
+            _preview_raw = df.head(10).to_dict(orient='records')
+            preview = [
+                {k: (None if isinstance(v, float) and math.isnan(v) else v) for k, v in row.items()}
+                for row in _preview_raw
+            ]
             columns = list(df.columns)
 
             # Early check: at least one column must have ≥10 usable numeric values
@@ -696,6 +879,7 @@ def upload_file():
             'preview': preview,
             'sampled': sampled,
             'suggested_amount_col': suggested_amount_col,
+            'ocr_used': ocr_used,
         })
 
     except Exception as e:
@@ -799,7 +983,7 @@ def export_csv():
     output = io.StringIO()
     writer = csv.writer(output)
 
-    writer.writerow(['FORENSIC LEDGER ANALYZER — FINDINGS REPORT'])
+    writer.writerow(['WEBCERTAIN APPLICATION ANALYZER — FINDINGS REPORT'])
     writer.writerow(['Case Number', data.get('case_number', '')])
     writer.writerow(['Investigator', data.get('investigator_id', '')])
     writer.writerow(['Timestamp (UTC)', data.get('timestamp', '')])

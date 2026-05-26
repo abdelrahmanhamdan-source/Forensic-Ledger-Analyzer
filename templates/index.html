@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Forensic Ledger Analyzer</title>
-<link rel="icon" type="image/jpeg" href="/static/logo.jpeg">
+<title>WEBCERTAIN APPLICATION ANALYZER</title>
+<link rel="icon" type="image/png" href="/static/logo.png">
 <link rel="stylesheet" href="/static/css/style.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
@@ -15,16 +15,16 @@
   <div class="welcome-inner">
     <div class="welcome-badge">
       <span class="welcome-icon">&#9670;</span>
-      <span class="welcome-badge-text">Forensic Ledger Analyzer</span>
+      <span class="welcome-badge-text">WEBCERTAIN APPLICATION ANALYZER</span>
     </div>
     <div class="welcome-logo-wrap">
-      <img src="/static/logo.jpeg" alt="Forensic Ledger Analyzer" class="welcome-logo">
+      <img src="/static/logo.png" alt="WEBCERTAIN APPLICATION ANALYZER" class="welcome-logo" onerror="this.style.display='none'">
     </div>
     <h1 class="welcome-title">
       COINCIDENCE?<br>
-      <span class="welcome-crimson">I THINK NOT</span>
+      <span class="welcome-blue">I THINK NOT</span>
     </h1>
-    <p class="welcome-greeting">Welcome, Investigator. You have been granted access to the Forensic Ledger Analyzer — a tool built for those who ask the right questions.</p>
+    <p class="welcome-greeting">Welcome, Investigator. You have been granted access to the WEBCERTAIN APPLICATION ANALYZER — a tool built for those who ask the right questions.</p>
     <p class="welcome-desc">Applies Benford's Law and supplementary statistical tests to surface financial anomalies warranting investigative review.</p>
     <div class="welcome-cta">
       <button class="btn btn-primary welcome-btn" onclick="startInvestigation()">Start Investigation</button>
@@ -80,8 +80,14 @@
       A deviation from Benford's Law does not prove fraud or manipulation. Many legitimate factors can cause deviations: data drawn from a narrow price range, highly rounded figures, small datasets, or industry-specific pricing structures. Treat any deviation as a flag — a pointer to where to look more carefully, not a conclusion in itself.
     </div>
     <div class="modal-section modal-integrity">
-      <strong>&#9432; Data Integrity Notice</strong><br>
-      For reliable results, upload structured transaction-level data (CSV or Excel preferred). Digital text-based PDFs are also accepted; scanned or image-based PDFs are not supported because OCR errors can corrupt digit distributions. Every uploaded file is fingerprinted with SHA-256 to preserve a verifiable chain-of-custody record.
+      <strong>&#9432; Data Integrity Notice</strong>
+      <ul class="integrity-list" style="margin-top:.5rem">
+        <li><strong>Preferred formats:</strong> CSV or Excel files with transaction-level data give the most reliable results. Use raw ledger exports, not summary totals.</li>
+        <li><strong>PDF &amp; image support:</strong> Text-based PDFs are fully supported. Scanned/image PDFs and PNG/JPG images are processed via OCR when available, and results are flagged with a visible warning because OCR can misread digits — verify figures against the source.</li>
+        <li><strong>Chain of custody:</strong> Every uploaded file is hashed with SHA-256, creating a verifiable, tamper-evident fingerprint stored in the audit trail.</li>
+        <li><strong>File size &amp; sampling:</strong> Files up to 250 MB are accepted; files over 50,000 rows are analyzed as a sample, clearly marked.</li>
+        <li><strong>Findings are not conclusions:</strong> Flagged anomalies are indicators for investigation, not proof of fraud or error.</li>
+      </ul>
     </div>
 
     <details class="inv-note">
@@ -117,8 +123,8 @@
 <header class="app-header hidden" id="app-header">
   <div class="header-inner">
     <div class="logo">
-      <img src="/static/logo.jpeg" alt="" class="header-logo">
-      <span class="logo-text">Forensic Ledger Analyzer</span>
+      <img src="/static/logo.png" alt="" class="header-logo" onerror="this.style.display='none'">
+      <span class="logo-text">WEBCERTAIN APPLICATION ANALYZER</span>
     </div>
     <nav class="tab-nav">
       <button class="tab-btn active" data-tab="analysis">Analysis</button>
@@ -136,10 +142,10 @@
       <h2 class="panel-title">Upload &amp; Configure</h2>
       <div class="upload-grid">
         <div class="upload-zone" id="drop-zone">
-          <input type="file" id="file-input" accept=".csv,.xlsx,.xls,.pdf" hidden>
+          <input type="file" id="file-input" accept=".csv,.xlsx,.xls,.pdf,.png,.jpg,.jpeg" hidden>
           <div class="drop-inner" id="drop-inner">
             <div class="drop-icon">&#8679;</div>
-            <p>Drop a CSV, Excel, or PDF data file here</p>
+            <p>Drop a CSV, Excel, PDF, or image file here</p>
             <p class="sub">or</p>
             <button class="btn btn-secondary" onclick="document.getElementById('file-input').click()">Browse Files</button>
           </div>
@@ -147,7 +153,7 @@
             <div class="spinner"></div>
             <p>Processing…</p>
           </div>
-          <p class="drop-hint">CSV, Excel (.xlsx / .xls), or text-based PDF &nbsp;&middot;&nbsp; Max 250 MB &nbsp;&middot;&nbsp; Files over 50,000 rows are sampled</p>
+          <p class="drop-hint">CSV, Excel (.xlsx / .xls), PDF (text or scanned), or image (PNG/JPG) &nbsp;&middot;&nbsp; Max 250 MB &nbsp;&middot;&nbsp; OCR data flagged with warning</p>
         </div>
         <div class="upload-config">
           <div class="field-group">
@@ -168,16 +174,17 @@
             <button class="btn btn-outline" onclick="loadSample()">Load Sample Dataset</button>
           </div>
           <div class="file-info hidden" id="file-info"></div>
+          <div class="ocr-warning-banner hidden" id="ocr-warning-banner"></div>
         </div>
       </div>
       <div class="integrity-notice">
         <div class="integrity-notice-title">&#9432; Data Integrity Notice</div>
         <ul class="integrity-list">
           <li><strong>Preferred formats:</strong> CSV or Excel files with transaction-level data give the most reliable results. Use raw ledger exports, not summary totals.</li>
-          <li><strong>PDF support:</strong> Digital (text-based) PDFs are supported. Scanned or image-based PDFs are not — OCR can misread digits and compromise the integrity of the statistical analysis.</li>
-          <li><strong>Chain of custody:</strong> Your file is hashed with SHA-256 on upload, generating a verifiable, tamper-evident fingerprint stored in the audit trail.</li>
-          <li><strong>File size &amp; sampling:</strong> Files up to 250 MB are accepted. If a file contains more than 50,000 rows, the first 50,000 rows are analyzed and the results are clearly marked as a sample.</li>
-          <li><strong>Findings are not conclusions:</strong> Flagged anomalies are indicators for further investigation. They do not by themselves constitute proof of fraud or error.</li>
+          <li><strong>PDF &amp; image support:</strong> Text-based PDFs are fully supported. Scanned/image PDFs and PNG/JPG images are processed via OCR when available, and results are flagged with a visible warning because OCR can misread digits — verify figures against the source.</li>
+          <li><strong>Chain of custody:</strong> Every uploaded file is hashed with SHA-256, creating a verifiable, tamper-evident fingerprint stored in the audit trail.</li>
+          <li><strong>File size &amp; sampling:</strong> Files up to 250 MB are accepted; files over 50,000 rows are analyzed as a sample, clearly marked.</li>
+          <li><strong>Findings are not conclusions:</strong> Flagged anomalies are indicators for investigation, not proof of fraud or error.</li>
         </ul>
       </div>
     </section>

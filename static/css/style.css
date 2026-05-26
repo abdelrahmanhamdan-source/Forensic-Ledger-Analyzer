@@ -1,3 +1,35 @@
+/* ─── OCR Warning ───────────────────────────────────────────── */
+.ocr-warning-banner {
+  background: rgba(220,38,38,.10);
+  border: 1px solid rgba(220,38,38,.40);
+  color: #f87171;
+  border-radius: var(--radius);
+  padding: .75rem 1.1rem;
+  margin: .5rem 0 0;
+  font-size: .9rem;
+  line-height: 1.55;
+}
+.ocr-warning-banner strong { color: #fca5a5; }
+
+.ocr-warning-interp {
+  background: rgba(220,38,38,.09);
+  border: 1px solid rgba(220,38,38,.38);
+  border-radius: var(--radius);
+  padding: .85rem 1.1rem;
+  margin-bottom: 1.25rem;
+  font-size: .88rem;
+  color: #f87171;
+  line-height: 1.65;
+}
+.ocr-warning-interp strong { color: #fca5a5; }
+.ocr-warning-interp code {
+  background: rgba(220,38,38,.18);
+  border-radius: 3px;
+  padding: .05rem .3rem;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: .82em;
+}
+
 /* ─── Sampling ──────────────────────────────────────────────── */
 .sample-notice-banner {
   background: rgba(234,179,8,.12);
@@ -639,6 +671,11 @@ select option { background: var(--bg3); }
 }
 .welcome-crimson {
   color: var(--crimson);
+  display: block;
+  font-size: clamp(2.3rem, 7vw, 4rem);
+}
+.welcome-blue {
+  color: var(--accent);
   display: block;
   font-size: clamp(2.3rem, 7vw, 4rem);
 }

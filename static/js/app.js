@@ -11,6 +11,7 @@ let state = {
   benfordChart: null,
   secondChart: null,
   sampled: false,
+  ocrUsed: false,
 };
 
 /* ─── Welcome Screen ───────────────────────────────────────── */
@@ -90,6 +91,7 @@ function resetForNewFile() {
   state.sortCol        = null;
   state.sortDir        = 1;
   state.sampled        = false;
+  state.ocrUsed        = false;
 
   hide('results-container');
   hide('preview-panel');
@@ -102,6 +104,8 @@ function resetForNewFile() {
 
   const sn = document.getElementById('sample-notice');
   if (sn) sn.className = 'hidden';
+  const ow = document.getElementById('ocr-warning-banner');
+  if (ow) ow.className = 'hidden';
 
   resetInterpretation();
 
@@ -110,9 +114,9 @@ function resetForNewFile() {
 
 async function handleFileUpload(file) {
   resetForNewFile();
-  const allowed = ['.csv', '.xlsx', '.xls', '.pdf'];
+  const allowed = ['.csv', '.xlsx', '.xls', '.pdf', '.png', '.jpg', '.jpeg'];
   const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
-  if (!allowed.includes(ext)) { showToast('Unsupported file type. Accepted formats: CSV, Excel (.xlsx / .xls), and text-based PDF.', 'error'); return; }
+  if (!allowed.includes(ext)) { showToast('Unsupported file type. Accepted formats: CSV, Excel (.xlsx / .xls), PDF, and images (PNG/JPG).', 'error'); return; }
 
   showProgress(true);
   const fd = new FormData();
@@ -139,6 +143,7 @@ async function handleFileUpload(file) {
     state.fileHash = data.file_hash;
     state.columns = data.columns;
     state.sampled = data.sampled || false;
+    state.ocrUsed = data.ocr_used || false;
     populateColumnSelectors(data.columns, data.suggested_amount_col);
     renderPreview(data.preview, data.columns);
     show('col-selectors');
@@ -149,6 +154,13 @@ async function handleFileUpload(file) {
       : '';
     document.getElementById('file-info').innerHTML =
       `<strong>${escHtml(data.filename)}</strong> &nbsp;|&nbsp; ${data.rows} rows &nbsp;|&nbsp; SHA-256: <span class="mono">${data.file_hash}</span>${sampleNote}`;
+    const ocrBanner = document.getElementById('ocr-warning-banner');
+    if (state.ocrUsed) {
+      ocrBanner.className = 'ocr-warning-banner';
+      ocrBanner.innerHTML = '&#9888; <strong>OCR-Extracted Data</strong> &mdash; This file was processed using Optical Character Recognition. OCR can misread digits (e.g. 0&rarr;O, 1&rarr;I, 5&rarr;S). <strong>Verify all figures against the source document before relying on this analysis.</strong>';
+    } else {
+      ocrBanner.className = 'hidden';
+    }
     show('preview-panel');
     document.getElementById('preview-badge').textContent = `${data.rows} rows`;
   } catch (e) {
@@ -611,7 +623,16 @@ function buildInterpretation(d) {
     }
   }
 
-  return `
+  const ocrInterpWarning = state.ocrUsed ? `
+    <div class="ocr-warning-interp">
+      <strong>&#9888; OCR-Extracted Data &mdash; Verify Before Relying on This Assessment</strong><br>
+      This dataset was extracted from a scanned or image-based document using Optical Character Recognition (OCR).
+      OCR can silently misread digits (e.g. <code>0&rarr;O</code>, <code>1&rarr;I</code>, <code>5&rarr;S</code>),
+      corrupting numeric values and distorting statistical results.
+      <strong>All figures must be verified against the original source document before drawing any conclusions.</strong>
+    </div>` : '';
+
+  return `${ocrInterpWarning}
     <div class="interp-header">
       <span class="interp-title">Forensic Assessment</span>
       <span class="interp-case mono">${escHtml(d.case_number)}</span>
