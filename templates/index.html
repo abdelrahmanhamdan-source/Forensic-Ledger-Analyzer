@@ -147,7 +147,7 @@
             <div class="spinner"></div>
             <p>Processing…</p>
           </div>
-          <p class="drop-hint">CSV, Excel (.xlsx / .xls), or text-based PDF &nbsp;&middot;&nbsp; Max 100 MB &nbsp;&middot;&nbsp; Files over 50,000 rows are sampled</p>
+          <p class="drop-hint">CSV, Excel (.xlsx / .xls), or text-based PDF &nbsp;&middot;&nbsp; Max 250 MB &nbsp;&middot;&nbsp; Files over 50,000 rows are sampled</p>
         </div>
         <div class="upload-config">
           <div class="field-group">
@@ -157,6 +157,7 @@
           <div class="field-group hidden" id="col-selectors">
             <label>Amount Column <span class="required">*</span></label>
             <select id="amount-col"></select>
+            <p class="col-hint">Auto-detected from your data. If the wrong column is selected, choose the correct one and click Run Analysis again.</p>
             <label>Vendor Column <span class="optional">(optional)</span></label>
             <select id="vendor-col"><option value="">— none —</option></select>
             <label>Invoice Column <span class="optional">(optional)</span></label>
@@ -175,7 +176,7 @@
           <li><strong>Preferred formats:</strong> CSV or Excel files with transaction-level data give the most reliable results. Use raw ledger exports, not summary totals.</li>
           <li><strong>PDF support:</strong> Digital (text-based) PDFs are supported. Scanned or image-based PDFs are not — OCR can misread digits and compromise the integrity of the statistical analysis.</li>
           <li><strong>Chain of custody:</strong> Your file is hashed with SHA-256 on upload, generating a verifiable, tamper-evident fingerprint stored in the audit trail.</li>
-          <li><strong>File size &amp; sampling:</strong> Files up to 100 MB are accepted. If a file contains more than 50,000 rows, the first 50,000 rows are analyzed and the results are clearly marked as a sample.</li>
+          <li><strong>File size &amp; sampling:</strong> Files up to 250 MB are accepted. If a file contains more than 50,000 rows, the first 50,000 rows are analyzed and the results are clearly marked as a sample.</li>
           <li><strong>Findings are not conclusions:</strong> Flagged anomalies are indicators for further investigation. They do not by themselves constitute proof of fraud or error.</li>
         </ul>
       </div>
@@ -202,6 +203,7 @@
       <section class="panel" id="benford-panel">
         <h2 class="panel-title">Benford's Law — First Digit Distribution</h2>
         <div class="verdict-banner" id="verdict-banner"></div>
+        <div id="range-limited-note" class="range-limited-note hidden"></div>
         <div class="stats-row" id="stats-row"></div>
         <div class="chart-wrap">
           <canvas id="benford-chart"></canvas>

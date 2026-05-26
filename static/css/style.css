@@ -323,6 +323,7 @@ select option { background: var(--bg3); }
 }
 .required { color: var(--crimson); }
 .optional { color: var(--muted); font-weight: 400; font-size: .8rem; }
+.col-hint { font-size: .78rem; color: var(--muted); margin-top: -.1rem; line-height: 1.4; }
 .sub-note { font-size: .85rem; color: var(--muted); margin-bottom: .75rem; }
 .muted { color: var(--muted); }
 
@@ -486,6 +487,19 @@ select option { background: var(--bg3); }
   line-height: 1.65;
 }
 .interp-disclaimer strong { color: var(--text); }
+
+/* ─── Range-Limited Caution ─────────────────────────────────── */
+.range-limited-note {
+  background: #1a1400;
+  border: 1px solid #854d0e;
+  border-radius: var(--radius);
+  padding: .65rem 1rem;
+  font-size: .85rem;
+  color: #fbbf24;
+  margin-bottom: .75rem;
+  line-height: 1.6;
+}
+.range-limited-note strong { color: #fde68a; }
 
 /* ─── Utility ───────────────────────────────────────────────── */
 .hidden { display: none !important; }

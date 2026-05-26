@@ -1,4 +1,4 @@
-import os
+﻿import os
 import io
 import csv
 import json
@@ -17,7 +17,7 @@ import pdfplumber
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 CORS(app)
-app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
+app.config['MAX_CONTENT_LENGTH'] = 250 * 1024 * 1024  # 250MB
 
 SAMPLE_ROW_LIMIT = 50_000
 
@@ -127,6 +127,16 @@ def benford_analysis(amounts):
         verdict_label = 'Nonconformity — Warrants Further Investigation'
         verdict_color = 'red'
 
+    try:
+        non_zero_abs = [abs(float(a)) for a in amounts if float(a) != 0]
+        if len(non_zero_abs) >= 2:
+            magnitude_span = math.log10(max(non_zero_abs)) - math.log10(min(non_zero_abs))
+        else:
+            magnitude_span = 0.0
+    except (ValueError, TypeError):
+        magnitude_span = 0.0
+    range_limited = magnitude_span < 2.0
+
     second_digits = [get_second_digit(a) for a in amounts]
     second_digits = [d for d in second_digits if d is not None]
     n2 = len(second_digits)
@@ -148,6 +158,8 @@ def benford_analysis(amounts):
         'verdict': verdict,
         'verdict_label': verdict_label,
         'verdict_color': verdict_color,
+        'magnitude_span': round(magnitude_span, 3),
+        'range_limited': range_limited,
         'second_actual': {str(k): round(v, 3) for k, v in second_actual.items()},
         'second_expected': {str(k): round(v, 3) for k, v in BENFORD_SECOND.items()},
         'second_n': n2,
@@ -248,61 +260,276 @@ def flag_rows(df, amount_col, vendor_col, invoice_col, dup_amounts, dup_invoices
     return flags_map
 
 
+def _strip_currency(val):
+    """Remove $, commas, spaces from a value and return float or None."""
+    if val is None:
+        return None
+    s = re.sub(r'[$,\s%]', '', str(val)).strip()
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def suggest_amount_col(df):
+    """Return the column name most likely to contain monetary transaction amounts.
+
+    Scores each column by:
+    - Fraction of cells that parse as numbers (after stripping $, commas, spaces)
+    - Bonus for decimal values and larger magnitudes (typical of money)
+    - Heavy penalty for columns that look like years (1900-2100)
+    - Penalty for sequential integers that look like IDs or row numbers
+    """
+    best_col = None
+    best_score = -9999.0
+
+    for col in df.columns:
+        vals = [v for v in df[col] if v is not None and str(v).strip() != '']
+        if not vals:
+            continue
+
+        numeric_vals = []
+        for v in vals:
+            n = _strip_currency(v)
+            if n is not None:
+                numeric_vals.append(n)
+
+        numeric_frac = len(numeric_vals) / len(vals)
+        if numeric_frac < 0.5 or len(numeric_vals) < 3:
+            continue
+
+        score = numeric_frac  # base 0.5–1.0
+
+        # Bonus: decimal values are a strong signal for money
+        decimal_frac = sum(1 for v in numeric_vals if v != int(v)) / len(numeric_vals)
+        score += decimal_frac * 0.5
+
+        # Bonus: wide value range (monetary data spans many orders of magnitude)
+        val_range = max(numeric_vals) - min(numeric_vals)
+        if val_range > 0:
+            score += min(math.log10(val_range + 1) / 10.0, 0.4)
+
+        # Bonus: larger average magnitude
+        mean_abs = sum(abs(v) for v in numeric_vals) / len(numeric_vals)
+        if mean_abs >= 1000:
+            score += 0.3
+        elif mean_abs >= 100:
+            score += 0.15
+        elif mean_abs >= 10:
+            score += 0.05
+
+        # Heavy penalty: values concentrated in year range 1900–2100
+        year_frac = sum(1 for v in numeric_vals if 1900 <= v <= 2100 and v == int(v)) / len(numeric_vals)
+        if year_frac >= 0.8:
+            score -= 2.0
+
+        # Penalty: sequential integers (row numbers, contract IDs, etc.)
+        int_vals = [v for v in numeric_vals if v == int(v)]
+        if len(int_vals) >= 3:
+            sorted_ints = sorted(set(int(v) for v in int_vals))
+            if len(sorted_ints) >= 3:
+                diffs = [sorted_ints[i + 1] - sorted_ints[i] for i in range(len(sorted_ints) - 1)]
+                seq_frac = sum(1 for d in diffs if 1 <= d <= 3) / len(diffs)
+                if seq_frac >= 0.7:
+                    score -= 0.8
+
+        if score > best_score:
+            best_score = score
+            best_col = col
+
+    return best_col
+
+
+def _normalize_raw_table(raw_table):
+    """
+    Normalize a raw pdfplumber table (list of lists) to (headers, data_rows).
+    Detects modal column count so blank columns and short rows never crash.
+    """
+    from collections import Counter
+    if not raw_table or len(raw_table) < 2:
+        return None, None
+
+    col_counts = Counter(len(r) for r in raw_table if r is not None)
+    if not col_counts:
+        return None, None
+    modal_ncols = col_counts.most_common(1)[0][0]
+    if modal_ncols < 1:
+        return None, None
+
+    raw_headers = list(raw_table[0] or [])
+    if len(raw_headers) < modal_ncols:
+        raw_headers += [None] * (modal_ncols - len(raw_headers))
+    raw_headers = raw_headers[:modal_ncols]
+
+    headers = []
+    for i, h in enumerate(raw_headers):
+        clean = str(h).strip() if h else ''
+        headers.append(clean if clean else f'Column_{i + 1}')
+
+    seen = {}
+    final_headers = []
+    for h in headers:
+        if h in seen:
+            seen[h] += 1
+            final_headers.append(f'{h}_{seen[h]}')
+        else:
+            seen[h] = 0
+            final_headers.append(h)
+
+    data_rows = []
+    for row in raw_table[1:]:
+        r = [str(v).strip() if v is not None else '' for v in (row or [])]
+        if len(r) < modal_ncols:
+            r += [''] * (modal_ncols - len(r))
+        data_rows.append(r[:modal_ncols])
+
+    return final_headers, data_rows
+
+
+def _text_strategy_tables(pdf):
+    """
+    Strategy C: reconstruct columns by aligning words to x-position buckets.
+    Returns list of raw tables (list of lists of strings).
+    """
+    page_tables = []
+    for page in pdf.pages:
+        words = page.extract_words() or []
+        if not words:
+            continue
+
+        lines = {}
+        for word in words:
+            y_bucket = round(word['top'] / 5) * 5
+            lines.setdefault(y_bucket, []).append(word)
+
+        sorted_lines = [sorted(ws, key=lambda w: w['x0']) for _, ws in sorted(lines.items())]
+        if len(sorted_lines) < 2:
+            continue
+
+        header_line = max(sorted_lines, key=len)
+        if len(header_line) < 2:
+            continue
+
+        col_xs = [w['x0'] for w in header_line]
+        ncols = len(col_xs)
+
+        table_rows = []
+        for line_words in sorted_lines:
+            row = [''] * ncols
+            for word in line_words:
+                dists = [abs(word['x0'] - cx) for cx in col_xs]
+                col_idx = dists.index(min(dists))
+                row[col_idx] = (row[col_idx] + ' ' + word['text']).strip()
+            table_rows.append(row)
+
+        if len(table_rows) >= 2:
+            page_tables.append(table_rows)
+
+    return page_tables
+
+
+def _combine_page_tables(tables):
+    """
+    Merge tables from different pages that share identical headers.
+    Input/output: list of [headers, data_rows].
+    """
+    combined = []
+    for headers, data_rows in tables:
+        for existing in combined:
+            if existing[0] == headers:
+                existing[1].extend(data_rows)
+                break
+        else:
+            combined.append([headers, list(data_rows)])
+    return combined
+
+
 def extract_pdf_dataframe(file_bytes):
     """
-    Extract tabular data from a text-based PDF using pdfplumber.
-    Returns (df, error_code):
-      (DataFrame, None)        — success
-      (None, 'scanned')        — no extractable text; likely a scanned/image PDF
-      (None, 'no_tables')      — text found but no parseable tables
-      (None, 'no_numeric_data')— tables found but fewer than 10 numeric values
-      (None, 'parse_error:…')  — unexpected exception
+    Extract tabular data from a text-based PDF using three strategies in order:
+      A) pdfplumber extract_tables() with default settings
+      B) extract_tables() with explicit 'text' vertical/horizontal strategy
+      C) word x-position alignment (line-by-line reconstruction)
+
+    Handles blank columns, inconsistent column counts, multi-page tables,
+    and currency-formatted values ($37,419.00 → 37419.0).
+
+    Returns (df, None) on success, or (None, error_code) on failure.
+    Error codes: 'scanned' | 'no_tables' | 'no_numeric_data' | 'parse_error:<msg>'
     """
     try:
-        all_tables = []
         total_chars = 0
 
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
             for page in pdf.pages:
-                text = page.extract_text() or ''
-                total_chars += len(text.strip())
+                total_chars += len((page.extract_text() or '').strip())
+
+            if total_chars == 0:
+                return None, 'scanned'
+
+            # Strategy A: default extract_tables()
+            raw_tables = []
+            for page in pdf.pages:
                 for tbl in (page.extract_tables() or []):
                     if tbl and len(tbl) > 1:
-                        all_tables.append(tbl)
+                        raw_tables.append(tbl)
 
-        if total_chars == 0:
-            return None, 'scanned'
+            # Strategy B: explicit text strategy (if A found nothing)
+            if not raw_tables:
+                ts = {"vertical_strategy": "text", "horizontal_strategy": "text"}
+                for page in pdf.pages:
+                    for tbl in (page.extract_tables(table_settings=ts) or []):
+                        if tbl and len(tbl) > 1:
+                            raw_tables.append(tbl)
 
-        if not all_tables:
+            normalized = []
+            for rt in raw_tables:
+                h, rows = _normalize_raw_table(rt)
+                if h and rows:
+                    normalized.append((h, rows))
+
+            # Strategy C: word-position alignment (if A and B found nothing)
+            if not normalized:
+                for rt in _text_strategy_tables(pdf):
+                    h, rows = _normalize_raw_table(rt)
+                    if h and rows:
+                        normalized.append((h, rows))
+
+        if not normalized:
             return None, 'no_tables'
 
-        best = max(all_tables, key=lambda t: len(t) * (len(t[0]) if t and t[0] else 0))
+        combined = _combine_page_tables(normalized)
+        best_headers, best_rows = max(combined, key=lambda t: len(t[1]) * len(t[0]))
 
-        raw_headers = best[0] or []
-        headers = []
-        for i, h in enumerate(raw_headers):
-            clean = str(h).strip() if h else ''
-            headers.append(clean if clean else f'Column_{i + 1}')
+        df = pd.DataFrame(best_rows, columns=best_headers)
 
-        seen = {}
-        final_headers = []
-        for h in headers:
-            if h in seen:
-                seen[h] += 1
-                final_headers.append(f'{h}_{seen[h]}')
-            else:
-                seen[h] = 0
-                final_headers.append(h)
+        # Drop all-blank rows
+        df = df[~df.apply(
+            lambda r: all(str(v).strip() == '' for v in r), axis=1
+        )].reset_index(drop=True)
 
-        ncols = len(final_headers)
-        normalized = []
-        for row in best[1:]:
-            r = list(row) if row else []
-            if len(r) < ncols:
-                r += [None] * (ncols - len(r))
-            normalized.append(r[:ncols])
+        # Auto-detect and coerce numeric columns (stripping currency formatting)
+        def _col_numeric_frac(series):
+            vals = [v for v in series if v is not None and str(v).strip() != '']
+            if not vals:
+                return 0.0
+            return sum(1 for v in vals if _strip_currency(v) is not None) / len(vals)
 
-        df = pd.DataFrame(normalized, columns=final_headers)
+        def _coerce(val):
+            if val is None or str(val).strip() == '':
+                return None
+            num = _strip_currency(val)
+            return num if num is not None else (str(val).strip() or None)
+
+        for col in df.columns:
+            if _col_numeric_frac(df[col]) >= 0.5:
+                df[col] = df[col].apply(_coerce)
+
+        # Replace remaining empty strings with None
+        for col in df.columns:
+            df[col] = df[col].map(
+                lambda v: None if (isinstance(v, str) and v.strip() == '') else v
+            )
 
         numeric_count = sum(
             len(pd.to_numeric(df[col], errors='coerce').dropna())
@@ -314,12 +541,25 @@ def extract_pdf_dataframe(file_bytes):
         return df, None
 
     except Exception as exc:
+        app.logger.error('PDF extraction error: %s', exc, exc_info=True)
         return None, f'parse_error:{exc}'
 
 
 @app.errorhandler(413)
 def request_entity_too_large(error):
-    return jsonify({'error': 'File is too large. The maximum allowed upload size is 100 MB.'}), 413
+    return jsonify({'error': 'File too large (max 250 MB). Please upload a smaller file.'}), 413
+
+
+@app.errorhandler(500)
+def internal_server_error(error):
+    app.logger.error('Internal server error: %s', error, exc_info=True)
+    return jsonify({'error': 'An unexpected server error occurred. Please try again or contact support.'}), 500
+
+
+@app.errorhandler(Exception)
+def unhandled_exception(error):
+    app.logger.error('Unhandled exception: %s', error, exc_info=True)
+    return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
 
 
 @app.route('/')
@@ -329,88 +569,138 @@ def index():
 
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file provided'}), 400
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No file selected'}), 400
-
-    filename = file.filename.lower()
-    if not (filename.endswith('.csv') or filename.endswith('.xlsx')
-            or filename.endswith('.xls') or filename.endswith('.pdf')):
-        return jsonify({'error': 'Only CSV, Excel, and text-based PDF files are supported'}), 400
-
-    file_bytes = file.read()
-    file_hash = sha256_of_bytes(file_bytes)
-
     try:
-        if filename.endswith('.csv'):
-            try:
-                df = pd.read_csv(io.BytesIO(file_bytes), nrows=SAMPLE_ROW_LIMIT + 1)
-            except pd.errors.ParserError:
-                return jsonify({'error': (
-                    "We couldn't reliably read this file's table structure. "
-                    "This often happens with CSV files that have inconsistent column counts or "
-                    "non-standard formatting. Please verify the file is a properly formatted CSV, "
-                    "or export a fresh copy from your source system."
-                )}), 400
-        elif filename.endswith('.pdf'):
-            df, err = extract_pdf_dataframe(file_bytes)
-            if err == 'scanned':
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+
+        filename = file.filename.lower()
+        if not (filename.endswith('.csv') or filename.endswith('.xlsx')
+                or filename.endswith('.xls') or filename.endswith('.pdf')):
+            return jsonify({'error': 'Only CSV, Excel, and text-based PDF files are supported'}), 400
+
+        try:
+            file_bytes = file.read()
+        except Exception as e:
+            app.logger.error('File read error: %s', e, exc_info=True)
+            return jsonify({'error': 'Failed to read the uploaded file. Please try again.'}), 400
+
+        file_hash = sha256_of_bytes(file_bytes)
+
+        try:
+            if filename.endswith('.csv'):
+                try:
+                    df = pd.read_csv(io.BytesIO(file_bytes), nrows=SAMPLE_ROW_LIMIT + 1)
+                except pd.errors.ParserError:
+                    return jsonify({'error': (
+                        "We couldn't reliably read this file's table structure. "
+                        "This often happens with CSV files that have inconsistent column counts or "
+                        "non-standard formatting. Please verify the file is a properly formatted CSV, "
+                        "or export a fresh copy from your source system."
+                    )}), 400
+            elif filename.endswith('.pdf'):
+                df, err = extract_pdf_dataframe(file_bytes)
+                if err == 'scanned':
+                    return jsonify({
+                        'error': (
+                            'This PDF appears to be a scanned or image-based document — no text could '
+                            'be extracted from it. Scanned PDFs cannot be reliably read for digit-level '
+                            'forensic analysis. Please upload a CSV or Excel export of the same data, '
+                            'or a digital (text-based) PDF if one is available.'
+                        )
+                    }), 400
+                elif err == 'no_tables':
+                    return jsonify({
+                        'error': (
+                            'Text was found in this PDF, but its layout could not be parsed into a '
+                            'structured data table. This commonly occurs with formatted financial '
+                            'statements, annual reports, or documents that mix narrative text with '
+                            'visually formatted tables — layouts that cannot be reliably converted '
+                            'to transaction-level data. '
+                            'Please upload the underlying data as a CSV or Excel file instead.'
+                        )
+                    }), 400
+                elif err == 'no_numeric_data':
+                    return jsonify({
+                        'error': (
+                            'A table was found in this PDF, but it appears to contain summary or '
+                            'aggregate figures (such as totals, subtotals, or category-level amounts) '
+                            "rather than the many individual transaction amounts Benford's Law requires. "
+                            'Summary financial statements — income statements, balance sheets, budget '
+                            'summaries — are not suitable for this analysis. '
+                            'Please upload a transaction-level ledger, invoice list, or journal export '
+                            'as a CSV or Excel file.'
+                        )
+                    }), 400
+                elif err and err.startswith('parse_error:'):
+                    app.logger.error('PDF parse_error returned: %s', err)
+                    return jsonify({'error': (
+                        "This PDF's layout or encoding is too complex to extract reliably. "
+                        'Please upload a CSV or Excel version of the data for accurate analysis.'
+                    )}), 400
+            else:
+                df = pd.read_excel(io.BytesIO(file_bytes), nrows=SAMPLE_ROW_LIMIT + 1)
+        except Exception as e:
+            app.logger.error('File parse error: %s', e, exc_info=True)
+            return jsonify({'error': (
+                'The file could not be read. It may be password-protected, corrupted, or in an '
+                'unsupported format. Please verify the file and try again, or upload a CSV or Excel version.'
+            )}), 400
+
+        try:
+            sampled = len(df) > SAMPLE_ROW_LIMIT
+            if sampled:
+                df = df.iloc[:SAMPLE_ROW_LIMIT]
+
+            df = df.where(pd.notnull(df), None)
+            preview = df.head(10).to_dict(orient='records')
+            columns = list(df.columns)
+
+            # Early check: at least one column must have ≥10 usable numeric values
+            usable_cols = [
+                col for col in df.columns
+                if len(pd.to_numeric(df[col], errors='coerce').dropna()) >= 10
+            ]
+            if not usable_cols:
                 return jsonify({
                     'error': (
-                        'This PDF appears to be a scanned image with no extractable text. '
-                        'OCR processing is not supported because misread digits would compromise '
-                        'the integrity of the analysis. Please upload a CSV, Excel, or '
-                        'digital (text-based) PDF version of your data instead.'
+                        'This file appears to contain summary or aggregate figures rather than '
+                        "individual transaction amounts. Benford's Law requires many individual "
+                        'numeric values — such as a ledger, invoice list, or journal export — '
+                        'not a summary financial statement or report. '
+                        'Please upload transaction-level data where at least one column contains '
+                        '10 or more individual numeric amounts.'
                     )
                 }), 400
-            elif err == 'no_tables':
-                return jsonify({
-                    'error': (
-                        'No structured tables were found in this PDF. '
-                        'Please export your data as CSV or Excel for reliable results.'
-                    )
-                }), 400
-            elif err == 'no_numeric_data':
-                return jsonify({
-                    'error': (
-                        'The tables extracted from this PDF contain fewer than 10 numeric values. '
-                        'Please upload a CSV or Excel file with transaction-level data.'
-                    )
-                }), 400
-            elif err and err.startswith('parse_error:'):
-                return jsonify({'error': (
-                    "We couldn't reliably read this file's table structure. "
-                    "This often happens with complex or multi-column PDFs. "
-                    "Please upload a CSV or Excel version of the data for accurate analysis."
-                )}), 400
-        else:
-            df = pd.read_excel(io.BytesIO(file_bytes), nrows=SAMPLE_ROW_LIMIT + 1)
+
+            suggested_amount_col = suggest_amount_col(df)
+
+            session_id = str(uuid.uuid4())
+            temp_path = os.path.join(UPLOAD_FOLDER, f"{session_id}.pkl")
+            df.to_pickle(temp_path)
+        except Exception as e:
+            app.logger.error('Post-parse processing error: %s', e, exc_info=True)
+            return jsonify({'error': (
+                'The file could not be prepared for analysis due to an unexpected formatting issue. '
+                'Please try uploading a CSV or Excel version of the data.'
+            )}), 400
+
+        return jsonify({
+            'session_id': session_id,
+            'filename': file.filename,
+            'file_hash': file_hash,
+            'rows': len(df),
+            'columns': columns,
+            'preview': preview,
+            'sampled': sampled,
+            'suggested_amount_col': suggested_amount_col,
+        })
+
     except Exception as e:
-        return jsonify({'error': f'Could not parse file: {str(e)}'}), 400
-
-    sampled = len(df) > SAMPLE_ROW_LIMIT
-    if sampled:
-        df = df.iloc[:SAMPLE_ROW_LIMIT]
-
-    df = df.where(pd.notnull(df), None)
-    preview = df.head(10).to_dict(orient='records')
-    columns = list(df.columns)
-
-    session_id = str(uuid.uuid4())
-    temp_path = os.path.join(UPLOAD_FOLDER, f"{session_id}.pkl")
-    df.to_pickle(temp_path)
-
-    return jsonify({
-        'session_id': session_id,
-        'filename': file.filename,
-        'file_hash': file_hash,
-        'rows': len(df),
-        'columns': columns,
-        'preview': preview,
-        'sampled': sampled,
-    })
+        app.logger.error('Unexpected upload error: %s', e, exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred during upload. Please try again.'}), 500
 
 
 @app.route('/api/analyze', methods=['POST'])
@@ -440,7 +730,16 @@ def analyze():
     amounts = pd.to_numeric(amounts_raw, errors='coerce').dropna().tolist()
 
     if len(amounts) < 10:
-        return jsonify({'error': 'Too few numeric values in the selected column (minimum 10)'}), 400
+        return jsonify({
+            'error': (
+                f'The selected column "{amount_col}" contains only {len(amounts)} numeric '
+                'value(s) — at least 10 are required. '
+                "Benford's Law analysis needs a dataset of many individual transaction amounts "
+                '(e.g. a ledger or invoice list), not a summary or report. '
+                'Try selecting a different column from the dropdown above, or upload a file '
+                'with transaction-level data.'
+            )
+        }), 400
 
     benford = benford_analysis(amounts)
     dup_amounts, dup_invoices = find_duplicates(df, amount_col, invoice_col or None)

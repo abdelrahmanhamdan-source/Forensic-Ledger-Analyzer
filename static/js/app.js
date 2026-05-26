@@ -124,9 +124,11 @@ async function handleFileUpload(file) {
       data = await res.json();
     } catch {
       if (res.status === 413) {
-        showToast('File is too large (max 100 MB). Please upload a smaller file.', 'error');
+        showToast('File too large (max 250 MB). Please upload a smaller file.', 'error');
+      } else if (res.status >= 500) {
+        showToast('A server error occurred during upload. Please try again.', 'error');
       } else {
-        showToast(`Upload failed (HTTP ${res.status}). Please try again.`, 'error');
+        showToast('Upload could not be completed. Please try a different file or format.', 'error');
       }
       showProgress(false);
       return;
@@ -137,7 +139,7 @@ async function handleFileUpload(file) {
     state.fileHash = data.file_hash;
     state.columns = data.columns;
     state.sampled = data.sampled || false;
-    populateColumnSelectors(data.columns);
+    populateColumnSelectors(data.columns, data.suggested_amount_col);
     renderPreview(data.preview, data.columns);
     show('col-selectors');
     show('analyze-btn');
@@ -161,7 +163,7 @@ function showProgress(on) {
   document.getElementById('drop-progress').classList.toggle('hidden', !on);
 }
 
-function populateColumnSelectors(cols) {
+function populateColumnSelectors(cols, suggestedAmountCol) {
   ['amount-col', 'vendor-col', 'invoice-col'].forEach(id => {
     const sel = document.getElementById(id);
     const isAmount = id === 'amount-col';
@@ -171,7 +173,14 @@ function populateColumnSelectors(cols) {
       opt.value = c; opt.textContent = c;
       sel.appendChild(opt);
     });
-    if (isAmount) autoSelectColumn(sel, cols, ['amount', 'amt', 'total', 'value', 'price', 'sum']);
+    if (isAmount) {
+      // Prefer the server's scored suggestion; fall back to keyword matching
+      if (suggestedAmountCol && cols.includes(suggestedAmountCol)) {
+        sel.value = suggestedAmountCol;
+      } else {
+        autoSelectColumn(sel, cols, ['amount', 'amt', 'total', 'value', 'price', 'sum']);
+      }
+    }
     if (id === 'vendor-col') autoSelectColumn(sel, cols, ['vendor', 'supplier', 'company', 'name', 'payee']);
     if (id === 'invoice-col') autoSelectColumn(sel, cols, ['invoice', 'inv', 'ref', 'reference', 'id', 'number']);
   });
@@ -277,6 +286,16 @@ function renderBenfordPanel(b) {
   banner.className = 'verdict-banner ' + b.verdict_color;
   const icons = { green: '✓', yellow: '⚠', orange: '⚠', red: '⚠' };
   banner.innerHTML = `<span>${icons[b.verdict_color] || '⚠'}</span> <span><strong>MAD Result:</strong> ${escHtml(b.verdict_label)}</span>`;
+
+  const rangeNote = document.getElementById('range-limited-note');
+  if (b.range_limited) {
+    const spanStr = (b.magnitude_span || 0).toFixed(1);
+    rangeNote.innerHTML = `<strong>⚠ Range-Limited Data:</strong> This dataset spans only <strong>${spanStr}</strong> order${parseFloat(spanStr) === 1.0 ? '' : 's'} of magnitude — less than the ~2 orders Benford's Law assumes for reliable results. Observed deviations may be artifacts of the narrow numeric range rather than indicators of manipulation. Interpret the MAD result above with caution.`;
+    rangeNote.classList.remove('hidden');
+  } else {
+    rangeNote.innerHTML = '';
+    rangeNote.classList.add('hidden');
+  }
 
   document.getElementById('stats-row').innerHTML = [
     { label: 'Records', value: b.n },
@@ -500,6 +519,8 @@ function buildInterpretation(d) {
   const dupInvCount = d.dup_invoices.reduce((s, x) => s + x.count, 0);
   const fuzzyCount = d.fuzzy_vendors.length;
   const madVal = b.mad.toFixed(6);
+  const rangeLimited = !!b.range_limited;
+  const spanStr = rangeLimited ? (b.magnitude_span || 0).toFixed(1) : null;
 
   // --- Benford verdict paragraph ---
   let benfordPara;
@@ -511,6 +532,11 @@ function buildInterpretation(d) {
     benfordPara = `The dataset's leading-digit distribution exhibits <strong>marginal conformity</strong> with Benford's Law. The MAD of <strong>${madVal}</strong> falls in the marginal range (0.012–0.015), approaching the threshold that warrants investigative attention. The data's digit patterns diverge more than is typically observed in unmanipulated financial records. Chi-square: ${b.chi2} (p&nbsp;=&nbsp;${b.chi2_p.toFixed(4)}).`;
   } else {
     benfordPara = `The dataset's leading-digit distribution shows <strong>statistically significant nonconformity</strong> with Benford's Law. The MAD of <strong>${madVal}</strong> exceeds the 0.015 nonconformity threshold, indicating the digit patterns deviate meaningfully from what is expected in naturally occurring financial records. This constitutes a primary analytical flag warranting further examination. Chi-square: ${b.chi2} (p&nbsp;=&nbsp;${b.chi2_p.toFixed(4)}).`;
+  }
+
+  // Range-limited caveat appended to verdict paragraph
+  if (rangeLimited) {
+    benfordPara += ` <strong>Important caveat:</strong> This dataset spans only <strong>${spanStr}</strong> order${parseFloat(spanStr) === 1.0 ? '' : 's'} of magnitude — less than the ~2 orders Benford's Law assumes for reliable results. When data is concentrated within a narrow numeric range (e.g. all values between $2,000 and $85,000), the leading-digit distribution naturally deviates from Benford's expectation without any manipulation. Observed deviations in this dataset may be artifacts of that limited range rather than indicators of fraud or error, and should not be treated as conclusive without corroborating evidence.`;
   }
 
   // --- Digit-level deviation (marginal / nonconformity only) ---
@@ -537,16 +563,16 @@ function buildInterpretation(d) {
   }
 
   // --- Supplementary findings ---
-  const parts = [];
+  const suppParts = [];
   if (dupAmtCount > 0)
-    parts.push(`<strong>${dupAmtCount}</strong> duplicate transaction amount${dupAmtCount !== 1 ? 's' : ''} across <strong>${d.dup_amounts.length}</strong> unique value${d.dup_amounts.length !== 1 ? 's' : ''}`);
+    suppParts.push(`<strong>${dupAmtCount}</strong> duplicate transaction amount${dupAmtCount !== 1 ? 's' : ''} across <strong>${d.dup_amounts.length}</strong> unique value${d.dup_amounts.length !== 1 ? 's' : ''}`);
   if (dupInvCount > 0)
-    parts.push(`<strong>${dupInvCount}</strong> duplicate invoice number${dupInvCount !== 1 ? 's' : ''} across <strong>${d.dup_invoices.length}</strong> unique reference${d.dup_invoices.length !== 1 ? 's' : ''}`);
+    suppParts.push(`<strong>${dupInvCount}</strong> duplicate invoice number${dupInvCount !== 1 ? 's' : ''} across <strong>${d.dup_invoices.length}</strong> unique reference${d.dup_invoices.length !== 1 ? 's' : ''}`);
   if (fuzzyCount > 0)
-    parts.push(`<strong>${fuzzyCount}</strong> similar vendor name pair${fuzzyCount !== 1 ? 's' : ''} flagged by fuzzy matching (potential vendor duplication or name-variation scheme)`);
+    suppParts.push(`<strong>${fuzzyCount}</strong> similar vendor name pair${fuzzyCount !== 1 ? 's' : ''} flagged by fuzzy matching (potential vendor duplication or name-variation scheme)`);
 
-  const findingsPara = parts.length > 0
-    ? `Supplementary analysis identified the following anomalies: ${parts.join('; ')}.`
+  const findingsPara = suppParts.length > 0
+    ? `Supplementary analysis identified the following anomalies: ${suppParts.join('; ')}.`
     : `Supplementary analysis detected no duplicate transaction amounts, no duplicate invoice numbers, and no similar vendor name pairs within the examined dataset.`;
 
   // --- Risk characterization ---
@@ -555,7 +581,12 @@ function buildInterpretation(d) {
   else if (b.verdict === 'nonconformity') benfordScore = 2;
 
   const anomalyCount = (dupAmtCount > 0 ? 1 : 0) + (dupInvCount > 0 ? 1 : 0) + (fuzzyCount > 0 ? 1 : 0);
-  const totalScore = benfordScore + anomalyCount;
+
+  // When range-limited, Benford deviation alone cannot drive HIGH priority.
+  // Cap its score contribution to 1 so it takes independent anomalies to reach HIGH.
+  const effectiveBenfordScore = rangeLimited ? Math.min(benfordScore, 1) : benfordScore;
+  const totalScore = effectiveBenfordScore + anomalyCount;
+  const benfordTempered = rangeLimited && benfordScore > effectiveBenfordScore;
 
   let riskLevel, riskClass, riskDesc;
   if (totalScore === 0) {
@@ -563,13 +594,21 @@ function buildInterpretation(d) {
     riskClass = 'risk-low';
     riskDesc = 'The dataset presents no statistically significant anomalies. Benford\'s Law conformity is within expected parameters and no supplementary indicators of concern were identified.';
   } else if (totalScore <= 2) {
-    riskLevel = 'MODERATE';
+    riskLevel = benfordTempered ? 'MODERATE — interpret with caution due to limited numeric range' : 'MODERATE';
     riskClass = 'risk-moderate';
-    riskDesc = 'One or more analytical indicators warrant further review. While not conclusive, the combination of findings elevates this dataset above baseline risk and supports targeted follow-up examination.';
+    if (benfordTempered) {
+      riskDesc = `One or more analytical indicators warrant further review. Note: the Benford nonconformity alone was not used to elevate this to HIGH priority because the dataset spans a narrow numeric range (${spanStr} orders of magnitude), making Benford deviations less reliable. This priority was tempered accordingly. Independent anomalies, if present, may still warrant targeted follow-up.`;
+    } else {
+      riskDesc = 'One or more analytical indicators warrant further review. While not conclusive, the combination of findings elevates this dataset above baseline risk and supports targeted follow-up examination.';
+    }
   } else {
     riskLevel = 'HIGH';
     riskClass = 'risk-high';
-    riskDesc = 'Multiple analytical indicators converge to suggest elevated investigative priority. The combination of Benford\'s Law deviation and supplementary anomalies warrants comprehensive forensic review of the underlying transactions.';
+    if (rangeLimited) {
+      riskDesc = `Multiple analytical indicators — including strong independent anomalies beyond Benford's Law alone — converge to suggest elevated investigative priority. Although the dataset spans a narrow numeric range (${spanStr} orders of magnitude), the corroborating supplementary findings (${suppParts.length} anomaly categor${suppParts.length === 1 ? 'y' : 'ies'}) independently support comprehensive forensic review.`;
+    } else {
+      riskDesc = 'Multiple analytical indicators converge to suggest elevated investigative priority. The combination of Benford\'s Law deviation and supplementary anomalies warrants comprehensive forensic review of the underlying transactions.';
+    }
   }
 
   return `
