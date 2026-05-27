@@ -7,6 +7,7 @@ import hashlib
 import datetime
 import math
 import re
+import gc
 from flask import Flask, request, jsonify, send_file, render_template
 from flask_cors import CORS
 import pandas as pd
@@ -617,6 +618,10 @@ def _words_to_raw_table(words):
     return table_rows if len(table_rows) >= 2 else None
 
 
+_OCR_MAX_SIDE = 2500   # pixels — downscale before OCR if larger
+_OCR_RESOLUTION = 150  # DPI for rasterization (lower = less memory)
+
+
 def _extract_pdf_via_ocr(file_bytes):
     """
     OCR fallback for scanned/image-based PDFs (called when extractable text < 50 chars).
@@ -625,27 +630,42 @@ def _extract_pdf_via_ocr(file_bytes):
     """
     if not _OCR_AVAILABLE:
         return None, 'ocr_unavailable', True
-    print("[OCR] Triggering OCR fallback — rasterizing PDF pages via pdfplumber")
+    print(f"[OCR] Triggering OCR fallback — rasterizing PDF pages at {_OCR_RESOLUTION} DPI")
     try:
         normalized = []
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
             total_pages = len(pdf.pages)
-            for page_num, page in enumerate(pdf.pages):
-                print(f"[OCR] Rasterizing page {page_num + 1}/{total_pages}...")
+            for page_num in range(total_pages):
+                page = pdf.pages[page_num]
+                print(f"[OCR] Rasterizing page {page_num + 1}/{total_pages} at {_OCR_RESOLUTION} DPI...")
+                img_obj = None
+                img = None
                 try:
-                    img_obj = page.to_image(resolution=200)
+                    img_obj = page.to_image(resolution=_OCR_RESOLUTION)
                     img = img_obj.original
+                    w, h = img.size
+                    print(f"[OCR] Page {page_num + 1} rasterized: {w}x{h} px, mode={img.mode}")
+                    if max(w, h) > _OCR_MAX_SIDE:
+                        img.thumbnail((_OCR_MAX_SIDE, _OCR_MAX_SIDE), PILImage.LANCZOS)
+                        w2, h2 = img.size
+                        print(f"[OCR] Page {page_num + 1} downscaled to {w2}x{h2} px")
                 except Exception as render_exc:
                     print(f"[OCR] Page {page_num + 1} rasterization failed: {render_exc}")
+                    del img_obj, img
+                    gc.collect()
                     continue
-                words = _ocr_words_from_image(img)
+                try:
+                    words = _ocr_words_from_image(img)
+                finally:
+                    del img, img_obj
+                    gc.collect()
                 char_count = sum(len(w['text']) for w in words)
                 print(f"[OCR] Page {page_num + 1}: extracted {char_count} characters via OCR")
                 raw_table = _words_to_raw_table(words)
                 if raw_table:
-                    h, rows = _normalize_raw_table(raw_table)
-                    if h and rows:
-                        normalized.append((h, rows))
+                    h_cols, rows = _normalize_raw_table(raw_table)
+                    if h_cols and rows:
+                        normalized.append((h_cols, rows))
         if not normalized:
             print("[OCR] OCR completed but no structured table detected across all pages")
             return None, 'no_tables', True
