@@ -12,6 +12,7 @@ let state = {
   secondChart: null,
   sampled: false,
   ocrUsed: false,
+  uploadedFileExt: '',
 };
 
 /* ─── Welcome Screen ───────────────────────────────────────── */
@@ -92,15 +93,18 @@ function resetForNewFile() {
   state.sortDir        = 1;
   state.sampled        = false;
   state.ocrUsed        = false;
+  state.uploadedFileExt = '';
 
   hide('results-container');
-  hide('preview-panel');
+  hide('upload-preview');
   hide('col-selectors');
   hide('analyze-btn');
   hide('file-info');
+  show('drop-zone');
 
-  document.getElementById('preview-table').innerHTML      = '';
-  document.getElementById('transactions-table').innerHTML = '';
+  document.getElementById('upload-preview-content').innerHTML = '';
+  document.getElementById('upload-preview-meta').innerHTML    = '';
+  document.getElementById('transactions-table').innerHTML     = '';
 
   const sn = document.getElementById('sample-notice');
   if (sn) sn.className = 'hidden';
@@ -145,15 +149,48 @@ async function handleFileUpload(file) {
     state.sampled = data.sampled || false;
     state.ocrUsed = data.ocr_used || false;
     populateColumnSelectors(data.columns, data.suggested_amount_col);
-    renderPreview(data.preview, data.columns);
+
+    // Build preview meta bar
+    const imgExts = ['.png', '.jpg', '.jpeg'];
+    const rowsText = imgExts.includes(ext) ? 'image' : `${data.rows} rows`;
+    const sampleTag = data.sampled ? ' &nbsp;<span class="sample-tag">&#9888; sampled</span>' : '';
+    const shortHash = data.file_hash.substring(0, 16) + '&hellip;';
+    document.getElementById('upload-preview-meta').innerHTML =
+      `<div class="upm-filename">${escHtml(data.filename)}</div>` +
+      `<div class="upm-meta-row">` +
+        `<span class="upm-chip"><strong>${rowsText}</strong>${sampleTag}</span>` +
+        `<span class="upm-chip">SHA-256:&nbsp;<span class="mono">${shortHash}</span></span>` +
+      `</div>`;
+
+    // Build preview content
+    const previewContent = document.getElementById('upload-preview-content');
+    if (imgExts.includes(ext)) {
+      const reader = new FileReader();
+      reader.onload = e => {
+        previewContent.innerHTML = `<img src="${e.target.result}" alt="Uploaded image preview">`;
+      };
+      reader.readAsDataURL(file);
+    } else if (ext === '.pdf') {
+      if (data.pdf_preview) {
+        previewContent.innerHTML = `<img src="${data.pdf_preview}" alt="PDF page 1 preview">`;
+      } else {
+        previewContent.innerHTML = `<p class="upm-no-preview">PDF page preview unavailable</p>`;
+      }
+    } else {
+      renderUploadPreviewTable(previewContent, data.preview, data.columns);
+    }
+
+    hide('drop-zone');
+    show('upload-preview');
     show('col-selectors');
     show('analyze-btn');
+
+    // Right-column file info (compact, for reference while configuring columns)
     document.getElementById('file-info').classList.remove('hidden');
-    const sampleNote = data.sampled
-      ? ' &nbsp;<span class="sample-tag">&#9888; First 50,000 rows sampled</span>'
-      : '';
+    const sampleNote = data.sampled ? ' &nbsp;<span class="sample-tag">&#9888; First 50,000 rows sampled</span>' : '';
     document.getElementById('file-info').innerHTML =
       `<strong>${escHtml(data.filename)}</strong> &nbsp;|&nbsp; ${data.rows} rows &nbsp;|&nbsp; SHA-256: <span class="mono">${data.file_hash}</span>${sampleNote}`;
+
     const ocrBanner = document.getElementById('ocr-warning-banner');
     if (state.ocrUsed) {
       ocrBanner.className = 'ocr-warning-banner';
@@ -161,8 +198,6 @@ async function handleFileUpload(file) {
     } else {
       ocrBanner.className = 'hidden';
     }
-    show('preview-panel');
-    document.getElementById('preview-badge').textContent = `${data.rows} rows`;
   } catch (e) {
     showToast('Connection error — ' + e.message, 'error');
   } finally {
@@ -205,13 +240,23 @@ function autoSelectColumn(sel, cols, keywords) {
   }
 }
 
-function renderPreview(rows, cols) {
-  const tbl = document.getElementById('preview-table');
-  let html = '<thead><tr>' + cols.map(c => `<th>${escHtml(String(c))}</th>`).join('') + '</tr></thead><tbody>';
+function renderUploadPreviewTable(container, rows, cols) {
+  if (!rows || !rows.length) {
+    container.innerHTML = '<p class="upm-no-preview">No preview data available</p>';
+    return;
+  }
+  let html = '<table class="data-table upm-table"><thead><tr>' +
+    cols.map(c => `<th>${escHtml(String(c))}</th>`).join('') +
+    '</tr></thead><tbody>';
   rows.forEach(row => {
     html += '<tr>' + cols.map(c => `<td>${escHtml(row[c] === null || row[c] === undefined ? '' : String(row[c]))}</td>`).join('') + '</tr>';
   });
-  tbl.innerHTML = html + '</tbody>';
+  container.innerHTML = html + '</tbody></table>';
+}
+
+function resetUpload() {
+  resetForNewFile();
+  document.getElementById('upload-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 /* ─── Analysis ─────────────────────────────────────────────── */

@@ -1013,3 +1013,90 @@ select option { background: var(--bg3); }
   font-style: italic;
   letter-spacing: .01em;
 }
+
+/* ─── Upload Preview (replaces drop zone after upload) ──────── */
+.upload-left {
+  display: flex;
+  flex-direction: column;
+}
+
+.upload-preview {
+  display: flex;
+  flex-direction: column;
+  gap: .75rem;
+}
+
+.upm-bar {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: .7rem 1rem;
+}
+
+.upm-filename {
+  font-weight: 700;
+  color: var(--text);
+  word-break: break-all;
+  font-size: .92rem;
+  margin-bottom: .3rem;
+}
+
+.upm-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .2rem .85rem;
+}
+
+.upm-chip {
+  font-size: .78rem;
+  color: var(--muted);
+}
+.upm-chip strong { color: var(--text); }
+
+.upload-preview-content {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: auto;
+  max-height: 340px;
+  background: var(--bg2);
+}
+
+.upload-preview-content img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  max-height: 420px;
+  object-fit: contain;
+  margin: 0 auto;
+  padding: .75rem;
+}
+
+/* Table inside the upload preview — compact, non-sortable */
+.upm-table th {
+  cursor: default !important;
+  position: static;
+  font-size: .78rem;
+  padding: .42rem .65rem;
+}
+.upm-table th .sort-arrow { display: none; }
+.upm-table td {
+  font-size: .78rem;
+  padding: .38rem .65rem;
+}
+
+.upm-no-preview {
+  padding: 1.75rem 1rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: .85rem;
+}
+
+.upm-reset-btn {
+  align-self: flex-start;
+}
+
+@media (max-width: 600px) {
+  .upload-preview-content { max-height: 260px; }
+  .upload-preview-content img { max-height: 300px; }
+}

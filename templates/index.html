@@ -141,19 +141,26 @@
     <section class="panel" id="upload-panel">
       <h2 class="panel-title">Upload &amp; Configure</h2>
       <div class="upload-grid">
-        <div class="upload-zone" id="drop-zone">
-          <input type="file" id="file-input" accept=".csv,.xlsx,.xls,.pdf,.png,.jpg,.jpeg" hidden>
-          <div class="drop-inner" id="drop-inner">
-            <div class="drop-icon">&#8679;</div>
-            <p>Drop a CSV, Excel, PDF, or image file here</p>
-            <p class="sub">or</p>
-            <button class="btn btn-secondary" onclick="document.getElementById('file-input').click()">Browse Files</button>
+        <div class="upload-left">
+          <div class="upload-zone" id="drop-zone">
+            <input type="file" id="file-input" accept=".csv,.xlsx,.xls,.pdf,.png,.jpg,.jpeg" hidden>
+            <div class="drop-inner" id="drop-inner">
+              <div class="drop-icon">&#8679;</div>
+              <p>Drop a CSV, Excel, PDF, or image file here</p>
+              <p class="sub">or</p>
+              <button class="btn btn-secondary" onclick="document.getElementById('file-input').click()">Browse Files</button>
+            </div>
+            <div class="drop-progress hidden" id="drop-progress">
+              <div class="spinner"></div>
+              <p>Processing…</p>
+            </div>
+            <p class="drop-hint">CSV, Excel (.xlsx / .xls), PDF (text or scanned), or image (PNG/JPG) &nbsp;&middot;&nbsp; Max 250 MB &nbsp;&middot;&nbsp; OCR data flagged with warning</p>
           </div>
-          <div class="drop-progress hidden" id="drop-progress">
-            <div class="spinner"></div>
-            <p>Processing…</p>
+          <div class="upload-preview hidden" id="upload-preview">
+            <div class="upm-bar" id="upload-preview-meta"></div>
+            <div class="upload-preview-content" id="upload-preview-content"></div>
+            <button class="btn btn-sm btn-outline upm-reset-btn" onclick="resetUpload()">&#8635; Upload a different file</button>
           </div>
-          <p class="drop-hint">CSV, Excel (.xlsx / .xls), PDF (text or scanned), or image (PNG/JPG) &nbsp;&middot;&nbsp; Max 250 MB &nbsp;&middot;&nbsp; OCR data flagged with warning</p>
         </div>
         <div class="upload-config">
           <div class="field-group">
@@ -176,7 +183,7 @@
           <div class="file-info hidden" id="file-info"></div>
           <div class="ocr-warning-banner hidden" id="ocr-warning-banner"></div>
         </div>
-      </div>
+      </div><!-- /upload-grid -->
       <div class="integrity-notice">
         <div class="integrity-notice-title">&#9432; Data Integrity Notice</div>
         <ul class="integrity-list">
@@ -186,14 +193,6 @@
           <li><strong>File size &amp; sampling:</strong> Files up to 250 MB are accepted; files over 50,000 rows are analyzed as a sample, clearly marked.</li>
           <li><strong>Findings are not conclusions:</strong> Flagged anomalies are indicators for investigation, not proof of fraud or error.</li>
         </ul>
-      </div>
-    </section>
-
-    <!-- Preview Table -->
-    <section class="panel hidden" id="preview-panel">
-      <h2 class="panel-title">File Preview <span class="badge" id="preview-badge"></span></h2>
-      <div class="table-scroll">
-        <table id="preview-table" class="data-table"></table>
       </div>
     </section>
 

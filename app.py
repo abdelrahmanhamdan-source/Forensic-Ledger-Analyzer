@@ -17,9 +17,15 @@ from difflib import SequenceMatcher
 import pdfplumber
 
 try:
-    import pytesseract
     from PIL import Image as PILImage
-    _OCR_AVAILABLE = True
+    _PIL_AVAILABLE = True
+except ImportError:
+    _PIL_AVAILABLE = False
+    PILImage = None
+
+try:
+    import pytesseract
+    _OCR_AVAILABLE = _PIL_AVAILABLE
     # On Windows, point pytesseract at the Tesseract binary if it isn't on PATH.
     _TESS_PATHS = [
         r"C:\Program Files\Tesseract-OCR\tesseract.exe",
@@ -34,7 +40,7 @@ try:
         print("[OCR] Tesseract not found at default Windows paths; relying on system PATH")
 except ImportError:
     _OCR_AVAILABLE = False
-    print("[OCR] pytesseract/Pillow not installed — OCR disabled")
+    print("[OCR] pytesseract not installed — OCR disabled")
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 CORS(app)
@@ -646,7 +652,7 @@ def _extract_pdf_via_ocr(file_bytes):
                     w, h = img.size
                     print(f"[OCR] Page {page_num + 1} rasterized: {w}x{h} px, mode={img.mode}")
                     if max(w, h) > _OCR_MAX_SIDE:
-                        img.thumbnail((_OCR_MAX_SIDE, _OCR_MAX_SIDE), PILImage.LANCZOS)
+                        img.thumbnail((_OCR_MAX_SIDE, _OCR_MAX_SIDE), PILImage.Resampling.LANCZOS)
                         w2, h2 = img.size
                         print(f"[OCR] Page {page_num + 1} downscaled to {w2}x{h2} px")
                 except Exception as render_exc:
@@ -686,6 +692,32 @@ def _extract_pdf_via_ocr(file_bytes):
         app.logger.error('OCR extraction error: %s', exc, exc_info=True)
         print(f"[OCR] Unexpected error during OCR: {exc}")
         return None, f'parse_error:{exc}', True
+
+
+def _render_pdf_first_page_preview(file_bytes):
+    """Render first PDF page at low resolution for the upload preview UI. Returns data URL or None."""
+    if not _PIL_AVAILABLE:
+        return None
+    import base64
+    try:
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            if not pdf.pages:
+                return None
+            img_obj = pdf.pages[0].to_image(resolution=96)
+            img = img_obj.original
+            w, h = img.size
+            print(f"[Preview] PDF first page: {w}x{h} px")
+            if max(w, h) > 600:
+                img.thumbnail((600, 600), PILImage.Resampling.LANCZOS)
+            if img.mode in ('RGBA', 'P', 'LA'):
+                img = img.convert('RGB')
+            buf = io.BytesIO()
+            img.save(buf, format='JPEG', quality=75, optimize=True)
+            del img, img_obj
+            return 'data:image/jpeg;base64,' + base64.b64encode(buf.getvalue()).decode()
+    except Exception as exc:
+        print(f"[Preview] PDF first-page render failed: {exc}")
+        return None
 
 
 def extract_image_dataframe(file_bytes):
@@ -762,6 +794,7 @@ def upload_file():
 
         file_hash = sha256_of_bytes(file_bytes)
         ocr_used = False
+        pdf_preview = None
 
         try:
             if filename.endswith('.csv'):
@@ -814,6 +847,8 @@ def upload_file():
                         'This PDF could not be processed — text extraction and OCR both failed or '
                         'produced unusable results. Please upload the data as a CSV or Excel file.'
                     )}), 400
+                if not err:
+                    pdf_preview = _render_pdf_first_page_preview(file_bytes)
             elif filename.endswith(_img_exts):
                 df, err, ocr_used = extract_image_dataframe(file_bytes)
                 if err == 'ocr_unavailable':
@@ -900,6 +935,7 @@ def upload_file():
             'sampled': sampled,
             'suggested_amount_col': suggested_amount_col,
             'ocr_used': ocr_used,
+            'pdf_preview': pdf_preview,
         })
 
     except Exception as e:
