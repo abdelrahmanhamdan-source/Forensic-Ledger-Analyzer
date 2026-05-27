@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WEBCERTAIN APPLICATION ANALYZER</title>
+<link rel="icon" type="image/png" href="/static/logo.png">
+<link rel="stylesheet" href="/static/css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ─── Welcome Screen ──────────────────────────────────────── -->
+<div id="welcome-screen" class="welcome-screen">
+  <div class="welcome-inner">
+    <div class="welcome-badge">
+      <span class="welcome-icon">&#9670;</span>
+      <span class="welcome-badge-text">WEBCERTAIN APPLICATION ANALYZER</span>
+    </div>
+    <div class="welcome-logo-wrap">
+      <img src="/static/logo.png" alt="WEBCERTAIN APPLICATION ANALYZER" class="welcome-logo" onerror="this.style.display='none'">
+    </div>
+    <h1 class="welcome-title">
+      COINCIDENCE?<br>
+      <span class="welcome-blue">I THINK NOT</span>
+    </h1>
+    <p class="welcome-greeting">Welcome, Investigator. You have been granted access to the WEBCERTAIN APPLICATION ANALYZER — a tool built for those who ask the right questions.</p>
+    <p class="welcome-desc">Applies Benford's Law and supplementary statistical tests to surface financial anomalies warranting investigative review.</p>
+    <div class="welcome-cta">
+      <button class="btn btn-primary welcome-btn" onclick="startInvestigation()">Start Investigation</button>
+      <button class="btn btn-outline welcome-btn" onclick="openBenfordModal()">About Benford's Law</button>
+    </div>
+    <button class="welcome-note-btn" onclick="openInvNote()">&#9654; A Note for Investigators</button>
+    <div class="welcome-checklist">
+      <h3 class="checklist-heading">Pre-Analysis Requirements</h3>
+      <ul class="checklist-list">
+        <li><span class="cl-check">&#10003;</span> Submit transaction-level records — individual entries, not aggregated or summary totals</li>
+        <li><span class="cl-check">&#10003;</span> Ensure the dataset spans multiple orders of magnitude; a narrow value range reduces analytical reliability</li>
+        <li><span class="cl-check">&#10003;</span> Enter your Investigator ID before initiating analysis — required for chain-of-custody documentation</li>
+        <li><span class="cl-check">&#10003;</span> Run the included sample dataset as a baseline control before submitting case data</li>
+        <li><span class="cl-check">&#10003;</span> Datasets of 500 or more records yield statistically reliable results; smaller samples may produce inconclusive findings</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Benford's Law Modal ──────────────────────────────────── -->
+<div id="benford-modal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeBenfordModal()">&#10005;</button>
+    <h2 class="modal-title">What is Benford's Law?</h2>
+
+    <div class="modal-section">
+      <h3 class="modal-h3">The Pattern in Natural Numbers</h3>
+      <p>In large collections of naturally occurring financial data — invoices, transactions, expenses — the leading digit is <em>not</em> evenly distributed. The digit <strong>1</strong> appears as the first digit roughly <strong>30.1%</strong> of the time, steadily decreasing down to about <strong>4.6%</strong> for the digit <strong>9</strong>. This mathematical phenomenon holds across invoices, payment ledgers, tax returns, and many other financial datasets.</p>
+    </div>
+
+    <div class="benford-mini-chart">
+      <div class="bmc-title">Expected First-Digit Distribution (Benford's Law)</div>
+      <div class="bmc-bars">
+        <div class="bmc-row"><span class="bmc-label">1</span><div class="bmc-track"><div class="bmc-bar" style="width:100%"></div></div><span class="bmc-pct">30.1%</span></div>
+        <div class="bmc-row"><span class="bmc-label">2</span><div class="bmc-track"><div class="bmc-bar" style="width:58.5%"></div></div><span class="bmc-pct">17.6%</span></div>
+        <div class="bmc-row"><span class="bmc-label">3</span><div class="bmc-track"><div class="bmc-bar" style="width:41.5%"></div></div><span class="bmc-pct">12.5%</span></div>
+        <div class="bmc-row"><span class="bmc-label">4</span><div class="bmc-track"><div class="bmc-bar" style="width:32.2%"></div></div><span class="bmc-pct">9.7%</span></div>
+        <div class="bmc-row"><span class="bmc-label">5</span><div class="bmc-track"><div class="bmc-bar" style="width:26.2%"></div></div><span class="bmc-pct">7.9%</span></div>
+        <div class="bmc-row"><span class="bmc-label">6</span><div class="bmc-track"><div class="bmc-bar" style="width:22.3%"></div></div><span class="bmc-pct">6.7%</span></div>
+        <div class="bmc-row"><span class="bmc-label">7</span><div class="bmc-track"><div class="bmc-bar" style="width:19.3%"></div></div><span class="bmc-pct">5.8%</span></div>
+        <div class="bmc-row"><span class="bmc-label">8</span><div class="bmc-track"><div class="bmc-bar" style="width:16.9%"></div></div><span class="bmc-pct">5.1%</span></div>
+        <div class="bmc-row"><span class="bmc-label">9</span><div class="bmc-track"><div class="bmc-bar" style="width:15.3%"></div></div><span class="bmc-pct">4.6%</span></div>
+      </div>
+    </div>
+
+    <div class="modal-section">
+      <h3 class="modal-h3">Why It Matters for Fraud Detection</h3>
+      <p>When figures are fabricated — inflated invoices, fictitious expenses, rounded payments — the tendency is to choose values that feel plausible or random, disrupting the natural Benford distribution. A statistically significant deviation from the expected pattern indicates that a dataset warrants closer examination.</p>
+    </div>
+
+    <div class="modal-section modal-warning">
+      <strong>&#9888; Important — Statistical Deviation Is Not Proof of Fraud</strong><br>
+      A deviation from Benford's Law does not prove fraud or manipulation. Many legitimate factors can cause deviations: data drawn from a narrow price range, highly rounded figures, small datasets, or industry-specific pricing structures. Treat any deviation as a flag — a pointer to where to look more carefully, not a conclusion in itself.
+    </div>
+    <div class="modal-section modal-integrity">
+      <strong>&#9432; Data Integrity Notice</strong>
+      <ul class="integrity-list" style="margin-top:.5rem">
+        <li><strong>Preferred formats:</strong> CSV or Excel files with transaction-level data give the most reliable results. Use raw ledger exports, not summary totals.</li>
+        <li><strong>PDF &amp; image support:</strong> Text-based PDFs are fully supported. Scanned/image PDFs and PNG/JPG images are processed via OCR when available, and results are flagged with a visible warning because OCR can misread digits — verify figures against the source.</li>
+        <li><strong>Chain of custody:</strong> Every uploaded file is hashed with SHA-256, creating a verifiable, tamper-evident fingerprint stored in the audit trail.</li>
+        <li><strong>File size &amp; sampling:</strong> Files up to 250 MB are accepted; files over 50,000 rows are analyzed as a sample, clearly marked.</li>
+        <li><strong>Findings are not conclusions:</strong> Flagged anomalies are indicators for investigation, not proof of fraud or error.</li>
+      </ul>
+    </div>
+
+    <details class="inv-note">
+      <summary class="inv-note-summary">
+        <span class="inv-note-chevron">&#9654;</span>
+        A Note for Investigators
+      </summary>
+      <div class="inv-note-body">
+        <div class="inv-note-section">
+          <h4 class="inv-note-h4">The Pattern Is Not Random</h4>
+          <p>Benford's Law rests on a straightforward but counterintuitive insight: in large collections of naturally occurring numbers, the leading digit follows a predictable, logarithmic distribution rather than a random one. The digit <strong>1</strong> appears first roughly <strong>30.1%</strong> of the time. By the time you reach <strong>3</strong>, that figure has dropped to about <strong>12.5%</strong>. The digit <strong>9</strong> leads only around <strong>4.6%</strong> of the time. This is a mathematical property of naturally grown data — not a coincidence and not negotiable.</p>
+        </div>
+        <div class="inv-note-section">
+          <h4 class="inv-note-h4">What Counts as a "Natural Number"</h4>
+          <p>Benford's Law applies only to values that arise organically from real-world activity — what fraud examiners call <em>natural numbers</em>. Payment amounts, invoice totals, and expense figures are natural numbers: nobody sat down and assigned them according to a scheme. Contrast this with postal codes, phone numbers, and invoice ID sequences. These are <em>non-natural numbers</em> — they are deliberately designed to encode information. Testing non-natural numbers against Benford's Law will produce meaningless results. Before running an analysis, confirm that the column you are testing contains organically generated transaction values.</p>
+        </div>
+        <div class="inv-note-section">
+          <h4 class="inv-note-h4">Why Fraudsters Break the Pattern</h4>
+          <p>Someone fabricating invoices or inflating expense claims is rarely drawn toward modest figures. The instinct is to go big — to invent amounts starting with <strong>8</strong> or <strong>9</strong> rather than <strong>1</strong> or <strong>2</strong>, because larger numbers feel more convincing or more worth the effort. Over a large dataset, that bias accumulates. When a digit like <strong>9</strong> appears as the leading digit <strong>35%</strong> of the time instead of the expected <strong>4.6%</strong>, that is a sharp, statistically significant anomaly. It does not prove anything on its own, but it tells you exactly where to look.</p>
+        </div>
+        <div class="inv-note-section">
+          <h4 class="inv-note-h4">A Flag, Not a Finding</h4>
+          <p>An anomaly surfaced by Benford analysis opens a door — it does not close a case. Deviations can arise from entirely legitimate causes: a narrow price range, industry-specific pricing tiers, data covering only a short period, or a dataset too small to produce a reliable distribution. Always treat a Benford anomaly as a signal to investigate further, never as standalone evidence of fraud or misconduct.</p>
+        </div>
+        <div class="inv-note-attribution">
+          Concept reference: John Gill, J.D., CFE &mdash; Association of Certified Fraud Examiners (ACFE)
+        </div>
+      </div>
+    </details>
+  </div>
+</div>
+
+<header class="app-header hidden" id="app-header">
+  <div class="header-inner">
+    <div class="logo">
+      <img src="/static/logo.png" alt="" class="header-logo" onerror="this.style.display='none'">
+      <span class="logo-text">WEBCERTAIN APPLICATION ANALYZER</span>
+    </div>
+    <nav class="tab-nav">
+      <button class="tab-btn active" data-tab="analysis">Analysis</button>
+      <button class="tab-btn" data-tab="audit">Audit Trail</button>
+    </nav>
+  </div>
+</header>
+
+<main class="hidden" id="app-main">
+  <!-- ANALYSIS TAB -->
+  <div id="tab-analysis" class="tab-pane active">
+
+    <!-- Upload Panel -->
+    <section class="panel" id="upload-panel">
+      <h2 class="panel-title">Upload &amp; Configure</h2>
+      <div class="upload-grid">
+        <div class="upload-zone" id="drop-zone">
+          <input type="file" id="file-input" accept=".csv,.xlsx,.xls,.pdf,.png,.jpg,.jpeg" hidden>
+          <div class="drop-inner" id="drop-inner">
+            <div class="drop-icon">&#8679;</div>
+            <p>Drop a CSV, Excel, PDF, or image file here</p>
+            <p class="sub">or</p>
+            <button class="btn btn-secondary" onclick="document.getElementById('file-input').click()">Browse Files</button>
+          </div>
+          <div class="drop-progress hidden" id="drop-progress">
+            <div class="spinner"></div>
+            <p>Processing…</p>
+          </div>
+          <p class="drop-hint">CSV, Excel (.xlsx / .xls), PDF (text or scanned), or image (PNG/JPG) &nbsp;&middot;&nbsp; Max 250 MB &nbsp;&middot;&nbsp; OCR data flagged with warning</p>
+        </div>
+        <div class="upload-config">
+          <div class="field-group">
+            <label>Investigator ID <span class="required">*</span></label>
+            <input type="text" id="investigator-id" placeholder="e.g. INV-JSmith" autocomplete="off">
+          </div>
+          <div class="field-group hidden" id="col-selectors">
+            <label>Amount Column <span class="required">*</span></label>
+            <select id="amount-col"></select>
+            <p class="col-hint">Auto-detected from your data. If the wrong column is selected, choose the correct one and click Run Analysis again.</p>
+            <label>Vendor Column <span class="optional">(optional)</span></label>
+            <select id="vendor-col"><option value="">— none —</option></select>
+            <label>Invoice Column <span class="optional">(optional)</span></label>
+            <select id="invoice-col"><option value="">— none —</option></select>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-primary hidden" id="analyze-btn" onclick="runAnalysis()">Run Analysis</button>
+            <button class="btn btn-outline" onclick="loadSample()">Load Sample Dataset</button>
+          </div>
+          <div class="file-info hidden" id="file-info"></div>
+          <div class="ocr-warning-banner hidden" id="ocr-warning-banner"></div>
+        </div>
+      </div>
+      <div class="integrity-notice">
+        <div class="integrity-notice-title">&#9432; Data Integrity Notice</div>
+        <ul class="integrity-list">
+          <li><strong>Preferred formats:</strong> CSV or Excel files with transaction-level data give the most reliable results. Use raw ledger exports, not summary totals.</li>
+          <li><strong>PDF &amp; image support:</strong> Text-based PDFs are fully supported. Scanned/image PDFs and PNG/JPG images are processed via OCR when available, and results are flagged with a visible warning because OCR can misread digits — verify figures against the source.</li>
+          <li><strong>Chain of custody:</strong> Every uploaded file is hashed with SHA-256, creating a verifiable, tamper-evident fingerprint stored in the audit trail.</li>
+          <li><strong>File size &amp; sampling:</strong> Files up to 250 MB are accepted; files over 50,000 rows are analyzed as a sample, clearly marked.</li>
+          <li><strong>Findings are not conclusions:</strong> Flagged anomalies are indicators for investigation, not proof of fraud or error.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Preview Table -->
+    <section class="panel hidden" id="preview-panel">
+      <h2 class="panel-title">File Preview <span class="badge" id="preview-badge"></span></h2>
+      <div class="table-scroll">
+        <table id="preview-table" class="data-table"></table>
+      </div>
+    </section>
+
+    <!-- Results -->
+    <div id="results-container" class="hidden">
+
+      <!-- Case Summary -->
+      <section class="panel" id="case-panel">
+        <h2 class="panel-title">Case Summary</h2>
+        <div class="case-grid" id="case-grid"></div>
+      </section>
+
+      <!-- Benford Chart -->
+      <section class="panel" id="benford-panel">
+        <h2 class="panel-title">Benford's Law — First Digit Distribution</h2>
+        <div class="verdict-banner" id="verdict-banner"></div>
+        <div id="range-limited-note" class="range-limited-note hidden"></div>
+        <div class="stats-row" id="stats-row"></div>
+        <div class="chart-wrap">
+          <canvas id="benford-chart"></canvas>
+        </div>
+        <h3 class="sub-title">Z-Scores by Digit</h3>
+        <div class="zscore-grid" id="zscore-grid"></div>
+        <h3 class="sub-title">Second Digit Distribution</h3>
+        <div class="chart-wrap chart-wrap-sm">
+          <canvas id="second-chart"></canvas>
+        </div>
+        <p class="disclaimer">&#9888; Statistical deviations are anomalies that warrant further investigation. They do not constitute proof of fraud.</p>
+      </section>
+
+      <!-- Findings -->
+      <section class="panel" id="findings-panel">
+        <h2 class="panel-title">Findings</h2>
+        <div class="findings-grid" id="findings-grid"></div>
+      </section>
+
+      <!-- Forensic Interpretation -->
+      <section class="panel" id="interpretation-panel">
+        <h2 class="panel-title interp-panel-title">Forensic Interpretation</h2>
+        <div id="interpret-cta" class="interpret-cta-wrap">
+          <button class="btn-interpret" onclick="generateInterpretation()">
+            Generate Forensic Interpretation
+            <span class="pro-badge">PRO</span>
+          </button>
+          <p class="interpret-subtext">Automated forensic assessment &mdash; included free ($0.00)</p>
+        </div>
+        <div id="interpret-loading" class="hidden">
+          <div class="interpret-loading-inner">
+            <div class="spinner"></div>
+            <span>Analyzing&hellip;</span>
+          </div>
+        </div>
+        <div id="interpret-result" class="hidden"></div>
+      </section>
+
+      <!-- Transactions Table -->
+      <section class="panel" id="transactions-panel">
+        <div class="panel-header-row">
+          <h2 class="panel-title">Transactions</h2>
+          <div class="filter-row">
+            <label class="checkbox-label">
+              <input type="checkbox" id="show-flagged-only" onchange="filterTable()">
+              Show flagged transactions only
+            </label>
+            <button class="btn btn-sm btn-outline" onclick="exportCSV()">Export Forensic Report (CSV)</button>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table id="transactions-table" class="data-table"></table>
+        </div>
+      </section>
+
+    </div><!-- /results-container -->
+  </div><!-- /tab-analysis -->
+
+  <!-- AUDIT TRAIL TAB -->
+  <div id="tab-audit" class="tab-pane hidden">
+    <section class="panel">
+      <h2 class="panel-title">Audit Trail — Chain of Custody</h2>
+      <p class="sub-note">Records are append-only and cannot be edited after creation.</p>
+      <button class="btn btn-outline" onclick="loadAudit()" style="margin-bottom:1rem">Refresh Records</button>
+      <div id="audit-table-wrap">
+        <p class="muted">Retrieving audit records…</p>
+      </div>
+    </section>
+  </div>
+</main>
+
+<div id="toast" class="toast hidden"></div>
+<script src="/static/js/app.js"></script>
+</body>
+</html>
