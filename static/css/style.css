@@ -45,6 +45,73 @@
   font-size: .82em;
   font-weight: 600;
 }
+
+/* ─── Summary Data Notice ───────────────────────────────────── */
+.summary-data-notice {
+  background: rgba(59,130,246,.08);
+  border: 1px solid rgba(59,130,246,.35);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.25rem 1rem;
+}
+.sdn-icon-heading {
+  font-size: .95rem;
+  font-weight: 700;
+  color: #60a5fa;
+  margin-bottom: .8rem;
+  line-height: 1.45;
+}
+.sdn-body {
+  font-size: .87rem;
+  color: var(--text);
+  line-height: 1.6;
+}
+.sdn-body p { margin-bottom: .6rem; }
+.sdn-lists {
+  margin: .7rem 0 .5rem;
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+  font-size: .86rem;
+}
+details.sdn-examples {
+  margin-top: .8rem;
+}
+details.sdn-examples > summary {
+  cursor: pointer;
+  color: #60a5fa;
+  font-size: .84rem;
+  font-weight: 600;
+  user-select: none;
+  list-style: none;
+  padding: .3rem 0;
+}
+details.sdn-examples > summary::-webkit-details-marker { display: none; }
+details.sdn-examples > summary:hover { text-decoration: underline; }
+.sdn-table-wrap { margin-top: .55rem; }
+.sdn-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .82rem;
+  color: var(--text);
+}
+.sdn-table th, .sdn-table td {
+  border: 1px solid var(--border);
+  padding: .32rem .6rem;
+  text-align: left;
+}
+.sdn-table thead th {
+  background: var(--bg3);
+  color: var(--muted);
+  font-weight: 600;
+}
+.sdn-table tbody tr:nth-child(even) { background: var(--bg3); }
+.sdn-example-note {
+  font-size: .78rem;
+  color: var(--muted);
+  margin-top: .45rem;
+}
+.sdn-reset-btn { margin-top: .9rem; }
+
 .drop-hint {
   font-size: .78rem;
   color: var(--muted);

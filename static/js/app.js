@@ -97,6 +97,7 @@ function resetForNewFile() {
 
   hide('results-container');
   hide('upload-preview');
+  hide('summary-data-notice');
   hide('col-selectors');
   hide('analyze-btn');
   hide('file-info');
@@ -141,7 +142,15 @@ async function handleFileUpload(file) {
       showProgress(false);
       return;
     }
-    if (!res.ok) { showToast(data.error || 'File upload failed. Please try again.', 'error'); showProgress(false); return; }
+    if (!res.ok) {
+      if (data.rejection_type === 'summary_data') {
+        showSummaryDataNotice();
+      } else {
+        showToast(data.error || 'File upload failed. Please try again.', 'error');
+      }
+      showProgress(false);
+      return;
+    }
     state.sessionId = data.session_id;
     state.filename = data.filename;
     state.fileHash = data.file_hash;
@@ -203,6 +212,11 @@ async function handleFileUpload(file) {
   } finally {
     showProgress(false);
   }
+}
+
+function showSummaryDataNotice() {
+  hide('drop-zone');
+  show('summary-data-notice');
 }
 
 function showProgress(on) {

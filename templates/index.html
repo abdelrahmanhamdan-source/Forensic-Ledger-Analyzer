@@ -161,6 +161,32 @@
             <div class="upload-preview-content" id="upload-preview-content"></div>
             <button class="btn btn-sm btn-outline upm-reset-btn" onclick="resetUpload()">&#8635; Upload a different file</button>
           </div>
+          <div class="summary-data-notice hidden" id="summary-data-notice">
+            <div class="sdn-icon-heading">📊 This looks like a summary financial statement, not transaction-level data.</div>
+            <div class="sdn-body">
+              <p>Benford&rsquo;s Law analysis needs many individual transaction amounts (typically 100+ rows) to give meaningful results &mdash; like a general ledger, invoice list, sales journal, or expense report.</p>
+              <p>Summary documents like balance sheets, income statements, or annual reports have too few numbers for statistical analysis to be reliable.</p>
+              <div class="sdn-lists">
+                <div>&#9989; <strong>Try uploading:</strong> a CSV/Excel ledger, journal export, or transaction list.</div>
+                <div>&#10060; <strong>Not suitable:</strong> balance sheets, income statements, annual reports, executive summaries.</div>
+              </div>
+              <details class="sdn-examples">
+                <summary>&#9654; Examples of suitable files</summary>
+                <div class="sdn-table-wrap">
+                  <table class="sdn-table">
+                    <thead><tr><th>Date</th><th>Vendor</th><th>Amount</th></tr></thead>
+                    <tbody>
+                      <tr><td>2024-01-03</td><td>Office Depot</td><td>142.50</td></tr>
+                      <tr><td>2024-01-05</td><td>Staples Inc.</td><td>89.99</td></tr>
+                      <tr><td>2024-01-07</td><td>Amazon Business</td><td>324.00</td></tr>
+                    </tbody>
+                  </table>
+                  <p class="sdn-example-note">Each row is one transaction &mdash; this is the kind of data Benford&rsquo;s Law can analyze.</p>
+                </div>
+              </details>
+            </div>
+            <button class="btn btn-secondary sdn-reset-btn" onclick="resetUpload()">&#8635; Upload a different file</button>
+          </div>
         </div>
         <div class="upload-config">
           <div class="field-group">

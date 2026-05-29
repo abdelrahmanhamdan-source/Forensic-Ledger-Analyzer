@@ -831,6 +831,7 @@ def upload_file():
                     }), 400
                 elif err == 'no_numeric_data':
                     return jsonify({
+                        'rejection_type': 'summary_data',
                         'error': (
                             'A table was found in this PDF, but it appears to contain summary or '
                             'aggregate figures (such as totals, subtotals, or category-level amounts) '
@@ -903,6 +904,7 @@ def upload_file():
             ]
             if not usable_cols:
                 return jsonify({
+                    'rejection_type': 'summary_data',
                     'error': (
                         'This file appears to contain summary or aggregate figures rather than '
                         "individual transaction amounts. Benford's Law requires many individual "
